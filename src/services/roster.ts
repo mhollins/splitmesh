@@ -4,6 +4,7 @@ import { parseGender, parseGradeLevel, type Gender, type GradeLevel } from "../d
 import { badRequest, notFound } from "../http/errors.ts";
 import { requireMembership } from "./access.ts";
 import { deleteAthleteGraph } from "./cascade.ts";
+import { listRecordsForTeam } from "./records.ts";
 
 export type AthleteInput = {
   firstName?: string;
@@ -48,13 +49,25 @@ export function addAthlete(ctx: AppContext, userId: string, teamId: string, inpu
 
 export function listAthletes(ctx: AppContext, userId: string, teamId: string) {
   requireMembership(ctx, userId, teamId, "viewer");
-  return ctx.db
+  const athletes = ctx.db
     .prepare(
       `SELECT id, first_name AS firstName, last_name AS lastName, gender,
               grade_level AS gradeLevel, graduation_year AS graduationYear
        FROM athletes WHERE team_id = ? ORDER BY last_name, first_name`,
     )
-    .all(teamId);
+    .all(teamId) as {
+    id: string;
+    firstName: string;
+    lastName: string;
+    gender: string;
+    gradeLevel: string;
+    graduationYear: number | null;
+  }[];
+  const records = listRecordsForTeam(ctx, teamId);
+  return athletes.map((athlete) => ({
+    ...athlete,
+    records: records.get(athlete.id) ?? [],
+  }));
 }
 
 export type AthleteRecord = {

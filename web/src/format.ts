@@ -43,6 +43,12 @@ export function parseTimeInput(value: string): number | null {
   return null;
 }
 
+export function formatDistanceLabel(meters: number | null): string {
+  if (meters == null) return "";
+  if (meters % 1000 === 0) return `${meters / 1000}K`;
+  return `${meters}m`;
+}
+
 export function formatTargetInput(ms: number | null): string {
   if (ms == null) return "";
   const totalSeconds = Math.round(ms / 1000);

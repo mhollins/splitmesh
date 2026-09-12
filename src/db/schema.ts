@@ -139,7 +139,8 @@ CREATE TABLE IF NOT EXISTS personal_records (
   distance_meters INTEGER,
   mark_type TEXT NOT NULL,
   mark_value INTEGER NOT NULL,
-  performance_id TEXT NOT NULL REFERENCES performances(id),
+  performance_id TEXT REFERENCES performances(id),
+  source TEXT NOT NULL DEFAULT 'performance',
   recorded_at INTEGER NOT NULL,
   UNIQUE (athlete_id, discipline, distance_meters, mark_type)
 );

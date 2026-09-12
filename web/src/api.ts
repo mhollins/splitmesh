@@ -66,6 +66,19 @@ export const api = {
   ) => request<{ athlete: Athlete }>(`/api/athletes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteAthlete: (id: string) =>
     request<{ ok: boolean }>(`/api/athletes/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
+  upsertRecord: (
+    athleteId: string,
+    body: { distanceMeters: number; markValueMs: number; discipline?: string },
+  ) =>
+    request<{ records: AthleteRecordMark[] }>(`/api/athletes/${athleteId}/records`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteRecord: (athleteId: string, recordId: string) =>
+    request<{ records: AthleteRecordMark[] }>(`/api/athletes/${athleteId}/records/${recordId}`, {
+      method: "DELETE",
+      body: JSON.stringify({}),
+    }),
   meets: (teamId: string) => request<{ meets: Meet[] }>(`/api/teams/${teamId}/meets`),
   createMeet: (teamId: string, body: { name: string; startsOn: string; location?: string }) =>
     request<{ meet: Meet }>(`/api/teams/${teamId}/meets`, { method: "POST", body: JSON.stringify(body) }),
@@ -118,6 +131,14 @@ export type Team = TeamSummary & {
   members: { id: string; email: string; displayName: string; role: string }[];
   currentSeason: { id: string; name: string } | null;
 };
+export type AthleteRecordMark = {
+  id: string;
+  discipline: string;
+  distanceMeters: number | null;
+  markType: string;
+  markValueMs: number;
+  source: string;
+};
 export type Athlete = {
   id: string;
   firstName: string;
@@ -125,6 +146,7 @@ export type Athlete = {
   gender: string;
   gradeLevel: string;
   graduationYear: number | null;
+  records?: AthleteRecordMark[];
 };
 export type Meet = { id: string; name: string; startsOn: string; location: string | null; status: string };
 export type MeetDetail = Meet & {

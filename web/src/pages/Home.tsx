@@ -1,7 +1,16 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type Athlete, type Meet, type Team, type User } from "../api";
-import { GENDER_LABELS, GENDERS, GRADE_LABELS, GRADE_LEVELS } from "../format";
+import {
+  GENDER_LABELS,
+  GENDERS,
+  GRADE_LABELS,
+  GRADE_LEVELS,
+  formatDistanceLabel,
+  formatMs,
+  formatTargetInput,
+  parseTimeInput,
+} from "../format";
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -23,6 +32,9 @@ export function HomePage() {
   const [editLast, setEditLast] = useState("");
   const [editGender, setEditGender] = useState("boys");
   const [editGradeLevel, setEditGradeLevel] = useState("high_school");
+  const [prTimes, setPrTimes] = useState<Record<string, string>>({});
+  const [newPrDistance, setNewPrDistance] = useState("5000");
+  const [newPrTime, setNewPrTime] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -110,6 +122,48 @@ export function HomePage() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete team");
+    }
+  }
+
+  async function onSavePr(athlete: Athlete, recordId: string, distanceMeters: number, discipline: string) {
+    const markValueMs = parseTimeInput(prTimes[recordId] ?? "");
+    if (markValueMs == null) {
+      setError("Enter a PR time like 19:12");
+      return;
+    }
+    setError(null);
+    try {
+      await api.upsertRecord(athlete.id, { distanceMeters, markValueMs, discipline });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save PR");
+    }
+  }
+
+  async function onDeletePr(athlete: Athlete, recordId: string) {
+    setError(null);
+    try {
+      await api.deleteRecord(athlete.id, recordId);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete PR");
+    }
+  }
+
+  async function onAddPr(athlete: Athlete) {
+    const markValueMs = parseTimeInput(newPrTime);
+    const distanceMeters = Number(newPrDistance);
+    if (markValueMs == null) {
+      setError("Enter a PR time like 19:12");
+      return;
+    }
+    setError(null);
+    try {
+      await api.upsertRecord(athlete.id, { distanceMeters, markValueMs });
+      setNewPrTime("");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save PR");
     }
   }
 
@@ -233,34 +287,83 @@ export function HomePage() {
             {athletes.map((athlete) => (
               <li key={athlete.id} className="manage-row">
                 {editingAthlete === athlete.id ? (
-                  <form
-                    className="row"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void onSaveAthlete(athlete.id);
-                    }}
-                  >
-                    <input value={editFirst} onChange={(e) => setEditFirst(e.target.value)} required />
-                    <input value={editLast} onChange={(e) => setEditLast(e.target.value)} required />
-                    <select value={editGender} onChange={(e) => setEditGender(e.target.value)}>
-                      {GENDERS.map((value) => (
-                        <option key={value} value={value}>
-                          {GENDER_LABELS[value]}
-                        </option>
-                      ))}
-                    </select>
-                    <select value={editGradeLevel} onChange={(e) => setEditGradeLevel(e.target.value)}>
-                      {GRADE_LEVELS.map((value) => (
-                        <option key={value} value={value}>
-                          {GRADE_LABELS[value]}
-                        </option>
-                      ))}
-                    </select>
-                    <button className="primary">Save</button>
-                    <button type="button" onClick={() => setEditingAthlete(null)}>
-                      Cancel
-                    </button>
-                  </form>
+                  <div className="athlete-edit">
+                    <form
+                      className="row"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void onSaveAthlete(athlete.id);
+                      }}
+                    >
+                      <input value={editFirst} onChange={(e) => setEditFirst(e.target.value)} required />
+                      <input value={editLast} onChange={(e) => setEditLast(e.target.value)} required />
+                      <select value={editGender} onChange={(e) => setEditGender(e.target.value)}>
+                        {GENDERS.map((value) => (
+                          <option key={value} value={value}>
+                            {GENDER_LABELS[value]}
+                          </option>
+                        ))}
+                      </select>
+                      <select value={editGradeLevel} onChange={(e) => setEditGradeLevel(e.target.value)}>
+                        {GRADE_LEVELS.map((value) => (
+                          <option key={value} value={value}>
+                            {GRADE_LABELS[value]}
+                          </option>
+                        ))}
+                      </select>
+                      <button className="primary">Save</button>
+                      <button type="button" onClick={() => setEditingAthlete(null)}>
+                        Cancel
+                      </button>
+                    </form>
+                    <p className="muted">Personal records</p>
+                    {(athlete.records ?? []).map((record) => (
+                      <form
+                        key={record.id}
+                        className="row"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void onSavePr(athlete, record.id, record.distanceMeters ?? 0, record.discipline);
+                        }}
+                      >
+                        <span className="pr-distance">{formatDistanceLabel(record.distanceMeters)}</span>
+                        <input
+                          className="target"
+                          value={prTimes[record.id] ?? formatTargetInput(record.markValueMs)}
+                          onChange={(e) => setPrTimes((current) => ({ ...current, [record.id]: e.target.value }))}
+                          placeholder="19:12"
+                          required
+                        />
+                        <button className="primary">Save PR</button>
+                        <button type="button" className="danger" onClick={() => void onDeletePr(athlete, record.id)}>
+                          Delete
+                        </button>
+                      </form>
+                    ))}
+                    <form
+                      className="row"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void onAddPr(athlete);
+                      }}
+                    >
+                      <select value={newPrDistance} onChange={(e) => setNewPrDistance(e.target.value)}>
+                        {[800, 1500, 1600, 3000, 3200, 5000, 8000, 10000].map((meters) => (
+                          <option key={meters} value={String(meters)}>
+                            {formatDistanceLabel(meters)}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="target"
+                        placeholder="19:12"
+                        value={newPrTime}
+                        onChange={(e) => setNewPrTime(e.target.value)}
+                        required
+                      />
+                      <button className="primary">Add PR</button>
+                    </form>
+                  </div>
                 ) : (
                   <>
                     <span>
@@ -268,6 +371,10 @@ export function HomePage() {
                       <span className="muted">
                         {GENDER_LABELS[athlete.gender as keyof typeof GENDER_LABELS] ?? athlete.gender} ·{" "}
                         {GRADE_LABELS[athlete.gradeLevel as keyof typeof GRADE_LABELS] ?? athlete.gradeLevel}
+                        {(athlete.records ?? []).length > 0 &&
+                          ` · ${(athlete.records ?? [])
+                            .map((record) => `${formatDistanceLabel(record.distanceMeters)} ${formatMs(record.markValueMs)}`)
+                            .join(" · ")}`}
                       </span>
                     </span>
                     {canManageRoster && (
@@ -280,6 +387,15 @@ export function HomePage() {
                             setEditLast(athlete.lastName);
                             setEditGender(athlete.gender);
                             setEditGradeLevel(athlete.gradeLevel);
+                            setPrTimes(
+                              Object.fromEntries(
+                                (athlete.records ?? []).map((record) => [
+                                  record.id,
+                                  formatTargetInput(record.markValueMs),
+                                ]),
+                              ),
+                            );
+                            setNewPrTime("");
                           }}
                         >
                           Edit

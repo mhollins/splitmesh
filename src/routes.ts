@@ -11,6 +11,7 @@ import {
 } from "./services/admin.ts";
 import { createTeam, deleteTeam, joinTeam, listTeamsForUser, requireTeam, updateTeam } from "./services/teams.ts";
 import { addAthlete, deleteAthlete, listAthletes, updateAthlete } from "./services/roster.ts";
+import { deleteManualRecord, upsertManualRecord } from "./services/records.ts";
 import {
   addEntries,
   completeEvent,
@@ -174,6 +175,25 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
       location: body.location,
     });
     return { meet };
+  });
+
+  app.put("/api/athletes/:athleteId/records", async (request) => {
+    const userId = uid(request, ctx);
+    const { athleteId } = request.params as { athleteId: string };
+    const body = request.body as { distanceMeters?: number; markValueMs?: number; discipline?: string };
+    return {
+      records: upsertManualRecord(ctx, userId, athleteId, {
+        distanceMeters: body.distanceMeters ?? 0,
+        markValueMs: body.markValueMs ?? 0,
+        discipline: body.discipline,
+      }),
+    };
+  });
+
+  app.delete("/api/athletes/:athleteId/records/:recordId", async (request) => {
+    const userId = uid(request, ctx);
+    const { athleteId, recordId } = request.params as { athleteId: string; recordId: string };
+    return { records: deleteManualRecord(ctx, userId, athleteId, recordId) };
   });
 
   app.patch("/api/athletes/:athleteId", async (request) => {
