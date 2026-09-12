@@ -93,6 +93,8 @@ export const api = {
       body: JSON.stringify(body),
     }),
   event: (id: string) => request<{ event: EventDetail }>(`/api/events/${id}`),
+  deleteEvent: (id: string) =>
+    request<{ ok: boolean }>(`/api/events/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
   addEntries: (eventId: string, athleteIds: string[], targetTimeMs?: number | null) =>
     request<{ event: EventDetail }>(`/api/events/${eventId}/entries`, {
       method: "POST",

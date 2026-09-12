@@ -17,6 +17,7 @@ import {
   completeEvent,
   createEvent,
   createMeet,
+  deleteEvent,
   deleteMeet,
   getMeet,
   listMeets,
@@ -257,6 +258,12 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const { eventId } = request.params as { eventId: string };
     requireEventAccess(ctx, userId, eventId, "viewer");
     return { event: loadEvent(ctx, eventId) };
+  });
+
+  app.delete("/api/events/:eventId", async (request) => {
+    const userId = uid(request, ctx);
+    const { eventId } = request.params as { eventId: string };
+    return deleteEvent(ctx, userId, eventId);
   });
 
   app.post("/api/events/:eventId/entries", async (request) => {

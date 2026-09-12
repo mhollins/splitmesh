@@ -20,7 +20,6 @@ export function MeetPage() {
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [eventName, setEventName] = useState("Varsity 5K");
   const [distance, setDistance] = useState("5000");
-  const [target, setTarget] = useState("19:00");
   const [meetName, setMeetName] = useState("");
   const [meetDate, setMeetDate] = useState("");
   const [meetLocation, setMeetLocation] = useState("");
@@ -52,11 +51,10 @@ export function MeetPage() {
       const created = await api.createEvent(meet.id, {
         name: eventName,
         distanceMeters: Number(distance),
-        discipline: "cross_country",
       });
       const ids = athletes.map((a) => a.id);
       if (ids.length) {
-        await api.addEntries(created.event.id, ids, parseTimeInput(target));
+        await api.addEntries(created.event.id, ids);
       }
       await load();
       await openRoster(created.event.id);
@@ -69,17 +67,26 @@ export function MeetPage() {
     setRosterDraft((current) => selectRosterByAttribute(athletes, current, match));
   }
 
-  function draftFrom(event: EventDetail, teamAthletes: Athlete[], defaultTarget: string): RosterDraft {
+  function draftFrom(event: EventDetail, teamAthletes: Athlete[]): RosterDraft {
     const entered = new Map(event.entries.map((entry) => [entry.athleteId, entry]));
     const draft: RosterDraft = {};
     for (const athlete of teamAthletes) {
       const entry = entered.get(athlete.id);
       draft[athlete.id] = {
         selected: Boolean(entry),
-        target: entry ? formatTargetInput(entry.targetTimeMs) : defaultTarget,
+        target: entry ? formatTargetInput(entry.targetTimeMs) : prTarget(athlete, event),
       };
     }
     return draft;
+  }
+
+  function prTarget(athlete: Athlete, event: EventDetail): string {
+    const records = athlete.records ?? [];
+    const match =
+      records.find(
+        (record) => record.distanceMeters === event.distanceMeters && record.discipline === event.discipline,
+      ) ?? records.find((record) => record.distanceMeters === event.distanceMeters);
+    return match ? formatTargetInput(match.markValueMs) : "";
   }
 
   async function openRoster(eventId: string) {
@@ -87,7 +94,7 @@ export function MeetPage() {
     try {
       const { event } = await api.event(eventId);
       setRosterEvent(event);
-      setRosterDraft(draftFrom(event, athletes, target));
+      setRosterDraft(draftFrom(event, athletes));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load roster");
     }
@@ -121,7 +128,7 @@ export function MeetPage() {
 
       const { event } = await api.event(rosterEvent.id);
       setRosterEvent(event);
-      setRosterDraft(draftFrom(event, athletes, target));
+      setRosterDraft(draftFrom(event, athletes));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save roster");
@@ -133,6 +140,18 @@ export function MeetPage() {
   async function start(eventId: string) {
     await api.startEvent(eventId);
     navigate(`/events/${eventId}/live`);
+  }
+
+  async function onDeleteEvent(eventId: string, name: string) {
+    if (!confirm(`Delete ${name} from this meet?`)) return;
+    setError(null);
+    try {
+      await api.deleteEvent(eventId);
+      if (rosterEvent?.id === eventId) setRosterEvent(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete event");
+    }
   }
 
   async function onSaveMeet(event: FormEvent) {
@@ -234,6 +253,9 @@ export function MeetPage() {
                     Open results
                   </Link>
                 )}
+                <button type="button" className="danger" onClick={() => void onDeleteEvent(event.id, event.name)}>
+                  Delete
+                </button>
               </div>
             </li>
           ))}
@@ -258,7 +280,7 @@ export function MeetPage() {
           </div>
           <ul className="plain">
             {athletes.map((athlete) => {
-              const row = rosterDraft[athlete.id] ?? { selected: false, target: target };
+              const row = rosterDraft[athlete.id] ?? { selected: false, target: prTarget(athlete, rosterEvent) };
               return (
                 <li key={athlete.id} className="manage-row">
                   <label className="check">
@@ -281,7 +303,7 @@ export function MeetPage() {
                   </label>
                   <input
                     className="target"
-                    placeholder="19:00"
+                    placeholder="PR"
                     value={row.target}
                     disabled={!row.selected}
                     onChange={(e) =>
@@ -319,10 +341,7 @@ export function MeetPage() {
           Distance (meters)
           <input value={distance} onChange={(e) => setDistance(e.target.value)} required />
         </label>
-        <label>
-          Default target (m:ss)
-          <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="19:00" />
-        </label>
+        <p className="muted">Each athlete’s target will be their PR for this distance, if they have one.</p>
         <button className="primary">Create event and enter roster</button>
       </form>
     </main>

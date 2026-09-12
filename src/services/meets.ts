@@ -4,8 +4,33 @@ import { defaultTimingPoints } from "../domain/timing.ts";
 import { newId, withTx } from "../db/index.ts";
 import { badRequest, conflict, notFound } from "../http/errors.ts";
 import { requireEventAccess, requireMembership } from "./access.ts";
-import { deleteMeetGraph } from "./cascade.ts";
+import { deleteEvents, deleteMeetGraph } from "./cascade.ts";
 import { appendLog } from "./eventLog.ts";
+import { defaultDisciplineForDistance, recomputeTimeRecords } from "./records.ts";
+
+function lookupPrMs(
+  ctx: AppContext,
+  athleteId: string,
+  discipline: string,
+  distanceMeters: number | null,
+): number | null {
+  if (distanceMeters == null) return null;
+  const exact = ctx.db
+    .prepare(
+      `SELECT mark_value AS markValueMs FROM personal_records
+       WHERE athlete_id = ? AND discipline = ? AND distance_meters = ? AND mark_type = 'time_ms'`,
+    )
+    .get(athleteId, discipline, distanceMeters) as { markValueMs: number } | undefined;
+  if (exact) return exact.markValueMs;
+  const fallback = ctx.db
+    .prepare(
+      `SELECT mark_value AS markValueMs FROM personal_records
+       WHERE athlete_id = ? AND distance_meters = ? AND mark_type = 'time_ms'
+       ORDER BY recorded_at DESC LIMIT 1`,
+    )
+    .get(athleteId, distanceMeters) as { markValueMs: number } | undefined;
+  return fallback?.markValueMs ?? null;
+}
 
 function currentSeasonId(ctx: AppContext, teamId: string): string {
   const row = ctx.db
@@ -105,6 +130,38 @@ export function deleteMeet(ctx: AppContext, userId: string, meetId: string) {
   return { ok: true };
 }
 
+export function deleteEvent(ctx: AppContext, userId: string, eventId: string) {
+  const { event, meet } = requireEventAccess(ctx, userId, eventId, "coach");
+  withTx(ctx.db, () => {
+    const athletes = ctx.db
+      .prepare(`SELECT DISTINCT athlete_id AS athleteId FROM event_entries WHERE event_id = ?`)
+      .all(eventId) as { athleteId: string }[];
+    deleteEvents(ctx.db, [eventId]);
+    const remainingLive = ctx.db
+      .prepare(`SELECT COUNT(*) AS n FROM events WHERE meet_id = ? AND status = 'live'`)
+      .get(meet.id) as { n: number };
+    if (remainingLive.n === 0) {
+      const remainingCompleted = ctx.db
+        .prepare(`SELECT COUNT(*) AS n FROM events WHERE meet_id = ? AND status = 'completed'`)
+        .get(meet.id) as { n: number };
+      ctx.db
+        .prepare(`UPDATE meets SET status = ? WHERE id = ?`)
+        .run(remainingCompleted.n > 0 ? "completed" : "scheduled", meet.id);
+    }
+    if (event.distance_meters != null) {
+      for (const row of athletes) {
+        recomputeTimeRecords(ctx, {
+          athleteId: row.athleteId,
+          seasonId: meet.season_id,
+          discipline: event.discipline,
+          distanceMeters: event.distance_meters,
+        });
+      }
+    }
+  });
+  return { ok: true };
+}
+
 export function createEvent(
   ctx: AppContext,
   userId: string,
@@ -126,7 +183,7 @@ export function createEvent(
   if (!Number.isInteger(input.distanceMeters) || input.distanceMeters <= 0) {
     throw badRequest("distanceMeters must be a positive integer");
   }
-  const discipline = (input.discipline ?? "cross_country") as Discipline;
+  const discipline = (input.discipline ?? defaultDisciplineForDistance(input.distanceMeters)) as Discipline;
   if (!isDiscipline(discipline)) throw badRequest("Unknown discipline");
   const category = categoryForDiscipline(discipline);
   if (category !== "running") {
@@ -237,8 +294,13 @@ export function addEntries(
   if (!input.athleteIds.length) throw badRequest("athleteIds required");
   const now = ctx.clock.now();
   const eventRow = ctx.db
-    .prepare(`SELECT status, started_at FROM events WHERE id = ?`)
-    .get(eventId) as { status: string; started_at: number | null };
+    .prepare(`SELECT status, started_at, discipline, distance_meters FROM events WHERE id = ?`)
+    .get(eventId) as {
+    status: string;
+    started_at: number | null;
+    discipline: string;
+    distance_meters: number | null;
+  };
 
   return withTx(ctx.db, () => {
     const insertEntry = ctx.db.prepare(
@@ -254,13 +316,17 @@ export function addEntries(
         .prepare(`SELECT id FROM athletes WHERE id = ? AND team_id = ?`)
         .get(athleteId, meet.team_id);
       if (!athlete) throw badRequest(`Athlete ${athleteId} is not on this team`);
+      const targetTimeMs =
+        input.targetTimeMs !== undefined && input.targetTimeMs !== null
+          ? input.targetTimeMs
+          : lookupPrMs(ctx, athleteId, eventRow.discipline, eventRow.distance_meters);
       const entryId = newId();
       const result = insertEntry.run(
         entryId,
         eventId,
         athleteId,
         null,
-        input.targetTimeMs ?? null,
+        targetTimeMs,
         now,
       );
       if (result.changes === 0) continue;

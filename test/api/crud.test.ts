@@ -211,6 +211,52 @@ describe("update and delete meets", () => {
     expect((await api(app!, owner.cookie, "GET", `/api/events/${event.id}`)).statusCode).toBe(404);
   });
 
+  it("lets a coach delete an event from a meet", async () => {
+    const { owner, coach, team } = await ownerTeam();
+    const meet = (
+      await api(app!, owner.cookie, "POST", `/api/teams/${team.id}/meets`, {
+        name: "Invite",
+        startsOn: "2026-09-12",
+      })
+    ).json().meet;
+    const event = (
+      await api(app!, owner.cookie, "POST", `/api/meets/${meet.id}/events`, {
+        name: "5K",
+        distanceMeters: 5000,
+      })
+    ).json().event;
+    const other = (
+      await api(app!, owner.cookie, "POST", `/api/meets/${meet.id}/events`, {
+        name: "JV 5K",
+        distanceMeters: 5000,
+      })
+    ).json().event;
+
+    const deleted = await api(app!, coach.cookie, "DELETE", `/api/events/${event.id}`);
+    expect(deleted.statusCode).toBe(200);
+    expect((await api(app!, owner.cookie, "GET", `/api/events/${event.id}`)).statusCode).toBe(404);
+    const remaining = (await api(app!, owner.cookie, "GET", `/api/meets/${meet.id}`)).json().meet;
+    expect(remaining.events.map((e: { id: string }) => e.id)).toEqual([other.id]);
+  });
+
+  it("forbids an outsider from deleting an event", async () => {
+    const { owner, stranger, team } = await ownerTeam();
+    const meet = (
+      await api(app!, owner.cookie, "POST", `/api/teams/${team.id}/meets`, {
+        name: "Invite",
+        startsOn: "2026-09-12",
+      })
+    ).json().meet;
+    const event = (
+      await api(app!, owner.cookie, "POST", `/api/meets/${meet.id}/events`, {
+        name: "5K",
+        distanceMeters: 5000,
+      })
+    ).json().event;
+    const res = await api(app!, stranger.cookie, "DELETE", `/api/events/${event.id}`);
+    expect(res.statusCode).toBe(403);
+  });
+
   it("lets a coach remove an athlete from an event roster", async () => {
     const { owner, coach, team } = await ownerTeam();
     const maya = (
