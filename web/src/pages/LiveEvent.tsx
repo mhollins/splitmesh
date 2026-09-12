@@ -133,63 +133,86 @@ export function LiveEventPage() {
   if (!state || !selectedPoint) return <main className="page">Connecting to live event…</main>;
 
   const clockMs = raceClockMs(state.event.startedAt, state.event.completedAt, now, state.event.status);
-  const elapsedClock = clockMs == null ? "—" : formatMs(clockMs);
+  const elapsedClock = clockMs == null ? "0:00.0" : formatMs(clockMs);
   const finished = state.event.status === "completed";
+  const upcoming = state.event.status === "upcoming";
+  const statusLabel = finished
+    ? "Finished"
+    : upcoming
+      ? "Ready"
+      : connected
+        ? "Live"
+        : "Reconnecting";
+
+  async function startRace() {
+    if (!eventId) return;
+    setError(null);
+    try {
+      await api.startEvent(eventId);
+      const snapshot = await api.state(eventId);
+      setState(snapshot.state);
+      setNow(Date.now());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start race");
+    }
+  }
+
+  async function finishRace() {
+    if (!eventId) return;
+    setError(null);
+    try {
+      await api.completeEvent(eventId);
+      const snapshot = await api.state(eventId);
+      setState(snapshot.state);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not finish race");
+    }
+  }
 
   return (
     <main className="live">
-      <header className="live-header">
-        <div>
-          <p className="eyebrow">
-            <Link to="/app">SplitMesh</Link>
-          </p>
-          <p>
-            <Link to={`/meets/${state.event.meetId}`}>← {state.event.meetName}</Link>
-          </p>
+      <p className="eyebrow">
+        <Link to="/app">SplitMesh</Link>
+        {" · "}
+        <Link to={`/meets/${state.event.meetId}`}>← {state.event.meetName}</Link>
+      </p>
+      <div className="live-sticky">
+        <div className="clock-bar">
           <h1>{state.event.name}</h1>
+          <div className="clock">{elapsedClock}</div>
+          <div className="live-meta">
+            <span className={finished ? "pill" : upcoming ? "pill" : connected ? "pill ok" : "pill warn"}>
+              {statusLabel}
+            </span>
+            {upcoming && (
+              <button type="button" className="primary" onClick={() => void startRace()}>
+                Start race
+              </button>
+            )}
+            {state.event.status === "live" && (
+              <button type="button" onClick={() => void finishRace()}>
+                Finish race
+              </button>
+            )}
+          </div>
         </div>
-        <div className="live-meta">
-          <span className={finished ? "pill" : connected ? "pill ok" : "pill warn"}>
-            {finished ? "Finished" : connected ? "Live" : "Reconnecting"}
-          </span>
-          <span className="clock">{elapsedClock}</span>
-          {state.event.status === "live" && (
-            <button
-              type="button"
-              onClick={async () => {
-                if (!eventId) return;
-                setError(null);
-                try {
-                  await api.completeEvent(eventId);
-                  const snapshot = await api.state(eventId);
-                  setState(snapshot.state);
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : "Could not finish race");
-                }
-              }}
-            >
-              Finish race
-            </button>
-          )}
-        </div>
-      </header>
-
-      {!finished && (
-        <div className="points">
-          {state.timingPoints.map((point) => (
-            <button
-              key={point.id}
-              className={point.id === selectedPoint.id ? "point active" : "point"}
-              onClick={() => {
-                if (point.id !== selectedPoint.id) setUndo(null);
-                setPointId(point.id);
-              }}
-            >
-              {point.name}
-            </button>
-          ))}
-        </div>
-      )}
+        {!finished && (
+          <div className="points">
+            {state.timingPoints.map((point) => (
+              <button
+                key={point.id}
+                className={point.id === selectedPoint.id ? "point active" : "point"}
+                onClick={() => {
+                  if (point.id !== selectedPoint.id) setUndo(null);
+                  setPointId(point.id);
+                }}
+              >
+                {point.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <input
         className="search"

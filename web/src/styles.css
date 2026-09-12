@@ -95,8 +95,25 @@ label { display: grid; gap: 0.35rem; font-size: 0.9rem; }
 .invite { color: var(--muted); }
 
 .live { padding: 0.75rem; max-width: 780px; margin: 0 auto; }
-.live-header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: 0.75rem; }
-.clock { font-variant-numeric: tabular-nums; font-size: 1.4rem; font-weight: 700; }
+.live-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg);
+  margin: 0 -0.75rem 0.5rem;
+  padding: max(0.35rem, env(safe-area-inset-top)) 0.75rem 0.55rem;
+  border-bottom: 1px solid var(--line);
+}
+.clock-bar { display: grid; justify-items: center; gap: 0.25rem; text-align: center; }
+.clock-bar h1 { font-size: 1rem; margin: 0; font-weight: 600; }
+.clock {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2.6rem, 14vw, 4.4rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.live-meta { justify-content: center; }
 .pill { border-radius: 999px; padding: 0.2rem 0.6rem; font-size: 0.8rem; }
 .pill.ok { background: #1f3d2a; color: var(--ahead); }
 .pill.warn { background: #3d2a1f; color: var(--behind); }

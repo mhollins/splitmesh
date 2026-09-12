@@ -137,11 +137,6 @@ export function MeetPage() {
     }
   }
 
-  async function start(eventId: string) {
-    await api.startEvent(eventId);
-    navigate(`/events/${eventId}/live`);
-  }
-
   async function onDeleteEvent(eventId: string, name: string) {
     if (!confirm(`Delete ${name} from this meet?`)) return;
     setError(null);
@@ -239,9 +234,9 @@ export function MeetPage() {
                   Edit roster
                 </button>
                 {event.status === "upcoming" && (
-                  <button type="button" className="primary" onClick={() => void start(event.id)}>
-                    Start live
-                  </button>
+                  <Link className="button primary" to={`/events/${event.id}/live`}>
+                    Go to event
+                  </Link>
                 )}
                 {event.status === "live" && (
                   <Link className="button primary" to={`/events/${event.id}/live`}>
