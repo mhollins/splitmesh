@@ -2,6 +2,13 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { COOKIE_NAME, type AppContext } from "./appContext.ts";
 import { requireUser, setSessionCookie } from "./http/sessionCookies.ts";
 import { getUser, authenticateUser, registerUser } from "./services/users.ts";
+import {
+  adminDeleteTeam,
+  adminUpdateTeam,
+  listAllTeams,
+  listCoaches,
+  updateCoach,
+} from "./services/admin.ts";
 import { createTeam, deleteTeam, joinTeam, listTeamsForUser, requireTeam, updateTeam } from "./services/teams.ts";
 import { addAthlete, deleteAthlete, listAthletes, updateAthlete } from "./services/roster.ts";
 import {
@@ -60,6 +67,36 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const user = getUser(ctx, userId);
     if (!user) throw unauthorized();
     return { user, teams: listTeamsForUser(ctx, userId) };
+  });
+
+  app.get("/api/admin/users", async (request) => {
+    const userId = uid(request, ctx);
+    return { users: listCoaches(ctx, userId) };
+  });
+
+  app.patch("/api/admin/users/:userId", async (request) => {
+    const actorId = uid(request, ctx);
+    const { userId } = request.params as { userId: string };
+    const body = request.body as { displayName?: string; isPlatformAdmin?: boolean };
+    return { user: updateCoach(ctx, actorId, userId, body) };
+  });
+
+  app.get("/api/admin/teams", async (request) => {
+    const userId = uid(request, ctx);
+    return { teams: listAllTeams(ctx, userId) };
+  });
+
+  app.patch("/api/admin/teams/:teamId", async (request) => {
+    const userId = uid(request, ctx);
+    const { teamId } = request.params as { teamId: string };
+    const body = request.body as { name?: string };
+    return { team: adminUpdateTeam(ctx, userId, teamId, body.name ?? "") };
+  });
+
+  app.delete("/api/admin/teams/:teamId", async (request) => {
+    const userId = uid(request, ctx);
+    const { teamId } = request.params as { teamId: string };
+    return adminDeleteTeam(ctx, userId, teamId);
   });
 
   app.post("/api/teams", async (request) => {

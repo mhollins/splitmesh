@@ -1,5 +1,11 @@
 import path from "node:path";
 
+export const DEFAULT_INITIAL_ADMIN_EMAIL = "marchollins@gmail.com";
+
+export function initialAdminEmail(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.INITIAL_ADMIN_EMAIL ?? DEFAULT_INITIAL_ADMIN_EMAIL).trim().toLowerCase();
+}
+
 export function isProduction(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NODE_ENV === "production";
 }

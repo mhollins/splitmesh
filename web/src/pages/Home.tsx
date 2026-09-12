@@ -156,7 +156,10 @@ export function HomePage() {
   if (!team) {
     return (
       <main className="page narrow">
-        <h1>SplitMesh</h1>
+        <header className="topbar">
+          <h1>SplitMesh</h1>
+          {user.isPlatformAdmin && <Link to="/admin">Admin</Link>}
+        </header>
         <p>Create a team or join with an invite code.</p>
         {error && <p className="error">{error}</p>}
         <form className="card" onSubmit={onCreateTeam}>
@@ -191,14 +194,17 @@ export function HomePage() {
           <p className="eyebrow">SplitMesh</p>
           <h1>{team.name}</h1>
         </div>
-        <button
-          onClick={async () => {
-            await api.logout();
-            navigate("/");
-          }}
-        >
-          Log out {user.displayName}
-        </button>
+        <span className="row">
+          {user.isPlatformAdmin && <Link to="/admin">Admin</Link>}
+          <button
+            onClick={async () => {
+              await api.logout();
+              navigate("/");
+            }}
+          >
+            Log out {user.displayName}
+          </button>
+        </span>
       </header>
       <p className="invite">
         Invite code <strong>{team.inviteCode}</strong>

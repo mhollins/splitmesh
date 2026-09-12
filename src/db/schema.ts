@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
   password_hash TEXT NOT NULL,
   display_name TEXT NOT NULL,
+  is_platform_admin INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 

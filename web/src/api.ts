@@ -34,6 +34,14 @@ export const api = {
   login: (body: { email: string; password: string }) =>
     request<{ user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify(body) }),
   logout: () => request("/api/auth/logout", { method: "POST", body: JSON.stringify({}) }),
+  adminUsers: () => request<{ users: AdminUser[] }>("/api/admin/users"),
+  updateCoach: (id: string, body: { displayName?: string; isPlatformAdmin?: boolean }) =>
+    request<{ user: User }>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  adminTeams: () => request<{ teams: Team[] }>("/api/admin/teams"),
+  adminUpdateTeam: (id: string, name: string) =>
+    request<{ team: Team }>(`/api/admin/teams/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  adminDeleteTeam: (id: string) =>
+    request<{ ok: boolean }>(`/api/admin/teams/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
   createTeam: (name: string) =>
     request<{ team: Team }>("/api/teams", { method: "POST", body: JSON.stringify({ name }) }),
   joinTeam: (inviteCode: string) =>
@@ -100,7 +108,11 @@ export const api = {
     request(`/api/observations/${observationId}/retract`, { method: "POST", body: JSON.stringify({}) }),
 };
 
-export type User = { id: string; email: string; displayName: string };
+export type User = { id: string; email: string; displayName: string; isPlatformAdmin: boolean };
+export type AdminUser = User & {
+  createdAt: number;
+  teams: { teamId: string; teamName: string; role: string }[];
+};
 export type TeamSummary = { id: string; name: string; inviteCode: string; role: string };
 export type Team = TeamSummary & {
   members: { id: string; email: string; displayName: string; role: string }[];
