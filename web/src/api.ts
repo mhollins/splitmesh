@@ -11,6 +11,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...options,
+    cache: "no-store",
     headers: {
       "content-type": "application/json",
       ...(options.headers ?? {}),
@@ -151,6 +152,7 @@ export type LiveState = {
   event: {
     id: string;
     name: string;
+    meetId: string;
     meetName: string;
     status: string;
     startedAt: number | null;

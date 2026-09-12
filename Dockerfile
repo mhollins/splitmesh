@@ -1,4 +1,5 @@
-FROM node:22-bookworm-slim AS build
+# Official Node via AWS Public ECR — Railway Metal builders often fail TLS to docker.io.
+FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS build
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
@@ -8,7 +9,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:22-bookworm-slim
+FROM public.ecr.aws/docker/library/node:22-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apt-get update \
