@@ -52,6 +52,8 @@ The API is the product surface. The React app is one client of that API.
 
 The live bus is **in-process**. One Node process owns SQLite and all SSE subscribers. That is intentional YAGNI: a single server covers a team's race day. Multi-instance would replace the in-process bus with Postgres `LISTEN/NOTIFY` or Redis and would likely move storage to Postgres at the same time.
 
+On Railway the SQLite file must live on a mounted volume (`/data/splitmesh.db`). Keep **one replica**. Extra replicas would not share SQLite or the in-process live bus.
+
 ## Request flow on race day
 
 ```

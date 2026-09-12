@@ -8,6 +8,7 @@ export type AppContext = {
   clock: Clock;
   sessionSecret: string;
   bus: EventBus;
+  cookieSecure?: boolean;
 };
 
 export const COOKIE_NAME = "splitmesh_session";

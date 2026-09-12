@@ -15,6 +15,6 @@ export function setSessionCookie(reply: FastifyReply, ctx: AppContext, userId: s
     path: "/",
     httpOnly: true,
     sameSite: "lax",
-    secure: false,
+    secure: Boolean(ctx.cookieSecure),
   });
 }

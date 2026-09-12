@@ -1,14 +1,17 @@
 import { buildApp } from "./app.ts";
+import { isProduction, resolveDbPath, resolveSessionSecret } from "./config.ts";
 
+const production = isProduction();
 const port = Number(process.env.PORT ?? 3000);
-const dbPath = process.env.DATABASE_PATH ?? "data/splitmesh.db";
-const sessionSecret = process.env.SESSION_SECRET ?? "dev-splitmesh-secret";
+const host = process.env.HOST ?? "0.0.0.0";
 
 const app = await buildApp({
-  dbPath,
-  sessionSecret,
+  dbPath: resolveDbPath(),
+  sessionSecret: resolveSessionSecret(),
   logger: true,
+  trustProxy: production,
+  cookieSecure: production,
 });
 
-await app.listen({ port, host: "0.0.0.0" });
-app.log.info(`SplitMesh API listening on http://localhost:${port}`);
+await app.listen({ port, host });
+app.log.info(`SplitMesh listening on ${host}:${port}`);

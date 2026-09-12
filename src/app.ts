@@ -15,6 +15,8 @@ export type BuildOptions = {
   sessionSecret?: string;
   clock?: Clock;
   logger?: boolean;
+  trustProxy?: boolean;
+  cookieSecure?: boolean;
 };
 
 export async function buildApp(options: BuildOptions = {}): Promise<FastifyInstance> {
@@ -24,9 +26,13 @@ export async function buildApp(options: BuildOptions = {}): Promise<FastifyInsta
     clock: options.clock ?? { now: () => Date.now() },
     sessionSecret: options.sessionSecret ?? "dev-splitmesh-secret",
     bus: new EventBus(),
+    cookieSecure: options.cookieSecure ?? false,
   };
 
-  const app = Fastify({ logger: options.logger ?? false });
+  const app = Fastify({
+    logger: options.logger ?? false,
+    trustProxy: options.trustProxy ?? false,
+  });
   await app.register(cookie);
   await app.register(cors, {
     origin: true,
