@@ -112,6 +112,25 @@ export function formatMs(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}.${tenths}`;
 }
 
+export function parseTimeInput(value: string): number | null {
+  const trimmed = value.trim().replace(",", ".");
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d+)(?::([0-5]?\d(?:\.\d+)?))$|^(\d+(?:\.\d+)?)$/);
+  if (!match) return null;
+  let ms: number;
+  if (match[3] != null) {
+    const seconds = Number(match[3]);
+    if (!Number.isFinite(seconds) || seconds < 0) return null;
+    ms = seconds * 1000;
+  } else {
+    const minutes = Number(match[1]);
+    const seconds = Number(match[2]);
+    if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+    ms = (minutes * 60 + seconds) * 1000;
+  }
+  return Math.round(ms / 100) * 100;
+}
+
 export function formatPace(secPerUnit: number): string {
   if (!Number.isFinite(secPerUnit) || secPerUnit < 0) return "—";
   const minutes = Math.floor(secPerUnit / 60);

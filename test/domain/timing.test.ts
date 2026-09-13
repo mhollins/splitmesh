@@ -6,6 +6,7 @@ import {
   expectedElapsedMs,
   formatMs,
   formatPace,
+  parseTimeInput,
   projectedFinishMs,
   summarizeRunningPerformance,
   vsTargetMs,
@@ -53,6 +54,13 @@ describe("formatting", () => {
   it("formats millisecond times as m:ss.t", () => {
     expect(formatMs(1_152_000)).toBe("19:12.0");
     expect(formatMs(65_400)).toBe("1:05.4");
+  });
+
+  it("parses times with tenth seconds", () => {
+    expect(parseTimeInput("19:12.4")).toBe(1_152_400);
+    expect(parseTimeInput("19:12")).toBe(1_152_000);
+    expect(parseTimeInput("1:05.4")).toBe(65_400);
+    expect(parseTimeInput("65.4")).toBe(65_400);
   });
 
   it("formats pace as m:ss", () => {
