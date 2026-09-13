@@ -15,6 +15,7 @@ export function LiveEventPage() {
   const [state, setState] = useState<LiveState | null>(null);
   const [pointId, setPointId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"name" | "pr">("name");
   const [connected, setConnected] = useState(false);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [bursting, setBursting] = useState<Set<string>>(new Set());
@@ -97,23 +98,21 @@ export function LiveEventPage() {
       if (!q) return true;
       return `${athlete.firstName} ${athlete.lastName}`.toLowerCase().includes(q);
     });
-    if (state.event.status === "completed") {
+    const byName = (a: LiveAthlete, b: LiveAthlete) =>
+      a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName);
+    if (sortBy === "pr") {
       return filtered.sort((a, b) => {
-        if (a.summary.finished !== b.summary.finished) return a.summary.finished ? -1 : 1;
-        const ae = a.summary.elapsedMs;
-        const be = b.summary.elapsedMs;
-        if (ae == null && be == null) {
-          return a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName);
-        }
-        if (ae == null) return 1;
-        if (be == null) return -1;
-        return ae - be;
+        const aPr = a.personalRecordMs;
+        const bPr = b.personalRecordMs;
+        if (aPr == null && bPr == null) return byName(a, b);
+        if (aPr == null) return 1;
+        if (bPr == null) return -1;
+        if (aPr !== bPr) return aPr - bPr;
+        return byName(a, b);
       });
     }
-    return filtered.sort(
-      (a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName),
-    );
-  }, [state, query]);
+    return filtered.sort(byName);
+  }, [state, query, sortBy]);
 
   async function tap(athlete: LiveAthlete) {
     if (!eventId || !selectedPoint) return;
@@ -297,6 +296,14 @@ export function LiveEventPage() {
         onChange={(e) => setQuery(e.target.value)}
         autoCapitalize="off"
       />
+      <div className="filters sorts">
+        <button type="button" className={sortBy === "name" ? "active" : ""} onClick={() => setSortBy("name")}>
+          A–Z
+        </button>
+        <button type="button" className={sortBy === "pr" ? "active" : ""} onClick={() => setSortBy("pr")}>
+          PR
+        </button>
+      </div>
 
       {error && <p className="error">{error}</p>}
 
