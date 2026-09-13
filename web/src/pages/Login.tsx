@@ -2,12 +2,14 @@ import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api";
 
+const isDemoLogin = import.meta.env.DEV;
+
 export function LoginPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("coach-a@splitmesh.local");
-  const [password, setPassword] = useState("password123");
-  const [displayName, setDisplayName] = useState("Coach Avery");
+  const [email, setEmail] = useState(isDemoLogin ? "coach-a@splitmesh.local" : "");
+  const [password, setPassword] = useState(isDemoLogin ? "password123" : "");
+  const [displayName, setDisplayName] = useState(isDemoLogin ? "Coach Avery" : "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -60,7 +62,9 @@ export function LoginPage() {
         <button className="primary" disabled={busy}>
           {busy ? "Working…" : mode === "login" ? "Enter" : "Create account"}
         </button>
-        <p className="hint">Demo: coach-a@splitmesh.local / coach-b@splitmesh.local — password123</p>
+        {isDemoLogin && (
+          <p className="hint">Demo: coach-a@splitmesh.local / coach-b@splitmesh.local — password123</p>
+        )}
       </form>
     </main>
   );

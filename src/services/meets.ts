@@ -4,7 +4,7 @@ import { defaultTimingPoints } from "../domain/timing.ts";
 import { newId, withTx } from "../db/index.ts";
 import { badRequest, conflict, notFound } from "../http/errors.ts";
 import { requireEventAccess, requireMembership } from "./access.ts";
-import { deleteEvents, deleteMeetGraph } from "./cascade.ts";
+import { clearEventTiming, deleteEvents, deleteMeetGraph } from "./cascade.ts";
 import { appendLog } from "./eventLog.ts";
 import { defaultDisciplineForDistance, recomputeTimeRecords } from "./records.ts";
 
@@ -93,7 +93,7 @@ export function getMeet(ctx: AppContext, userId: string, meetId: string) {
   const events = ctx.db
     .prepare(
       `SELECT e.id, e.name, e.category, e.discipline, e.distance_meters AS distanceMeters, e.status,
-              e.started_at AS startedAt,
+              e.started_at AS startedAt, e.paused_at AS pausedAt,
               (SELECT COUNT(*) FROM event_entries ee WHERE ee.event_id = e.id) AS entryCount
        FROM events e WHERE e.meet_id = ? ORDER BY e.created_at`,
     )
@@ -138,7 +138,7 @@ export function deleteEvent(ctx: AppContext, userId: string, eventId: string) {
       .all(eventId) as { athleteId: string }[];
     deleteEvents(ctx.db, [eventId]);
     const remainingLive = ctx.db
-      .prepare(`SELECT COUNT(*) AS n FROM events WHERE meet_id = ? AND status = 'live'`)
+      .prepare(`SELECT COUNT(*) AS n FROM events WHERE meet_id = ? AND status IN ('live', 'paused')`)
       .get(meet.id) as { n: number };
     if (remainingLive.n === 0) {
       const remainingCompleted = ctx.db
@@ -239,6 +239,7 @@ export type EventRecord = {
   distanceMeters: number | null;
   status: string;
   startedAt: number | null;
+  pausedAt: number | null;
   completedAt: number | null;
   timingPoints: { id: string; name: string; distanceMeters: number; sortOrder: number; isFinish: boolean }[];
   entries: {
@@ -258,7 +259,7 @@ export function loadEvent(ctx: AppContext, eventId: string): EventRecord {
     .prepare(
       `SELECT e.id, e.meet_id AS meetId, m.team_id AS teamId, e.name, e.category, e.discipline,
               e.distance_meters AS distanceMeters, e.status, e.started_at AS startedAt,
-              e.completed_at AS completedAt
+              e.paused_at AS pausedAt, e.completed_at AS completedAt
        FROM events e JOIN meets m ON m.id = e.meet_id WHERE e.id = ?`,
     )
     .get(eventId) as Omit<EventRecord, "timingPoints" | "entries"> | undefined;
@@ -333,7 +334,7 @@ export function addEntries(
       const created = ctx.db
         .prepare(`SELECT id FROM event_entries WHERE event_id = ? AND athlete_id = ?`)
         .get(eventId, athleteId) as { id: string };
-      if (eventRow.status === "live") {
+      if (eventRow.status === "live" || eventRow.status === "paused") {
         insertPerf.run(newId(), created.id, eventId, athleteId, "in_progress", eventRow.started_at, now);
       }
     }
@@ -375,8 +376,29 @@ export function startEvent(ctx: AppContext, userId: string, eventId: string) {
   if (event.status === "live") return loadEvent(ctx, eventId);
 
   const now = ctx.clock.now();
+  if (event.status === "paused") {
+    const pausedAt = loadPausedAt(ctx, eventId);
+    if (pausedAt == null) throw conflict("Event is not paused", "EVENT_NOT_PAUSED");
+    const delta = now - pausedAt;
+    withTx(ctx.db, () => {
+      ctx.db
+        .prepare(`UPDATE events SET status = 'live', started_at = started_at + ?, paused_at = NULL WHERE id = ?`)
+        .run(delta, eventId);
+      ctx.db
+        .prepare(
+          `UPDATE timing_observations SET observed_at = observed_at + ?, recorded_at = recorded_at + ? WHERE event_id = ?`,
+        )
+        .run(delta, delta, eventId);
+      appendLog(ctx, eventId, "event.resumed", { resumedAt: now });
+    });
+    ctx.bus.publish(eventId, currentSeq(ctx, eventId), "event.resumed");
+    return loadEvent(ctx, eventId);
+  }
+
   withTx(ctx.db, () => {
-    ctx.db.prepare(`UPDATE events SET status = 'live', started_at = ? WHERE id = ?`).run(now, eventId);
+    ctx.db
+      .prepare(`UPDATE events SET status = 'live', started_at = ?, paused_at = NULL WHERE id = ?`)
+      .run(now, eventId);
     ctx.db.prepare(`UPDATE meets SET status = 'live' WHERE id = ? AND status = 'scheduled'`).run(event.meet_id);
     const entries = ctx.db
       .prepare(`SELECT id, athlete_id FROM event_entries WHERE event_id = ?`)
@@ -394,19 +416,79 @@ export function startEvent(ctx: AppContext, userId: string, eventId: string) {
   return loadEvent(ctx, eventId);
 }
 
-export function completeEvent(ctx: AppContext, userId: string, eventId: string) {
-  const { event, meet } = requireEventAccess(ctx, userId, eventId, "coach");
+function loadPausedAt(ctx: AppContext, eventId: string): number | null {
+  const row = ctx.db.prepare(`SELECT paused_at FROM events WHERE id = ?`).get(eventId) as
+    | { paused_at: number | null }
+    | undefined;
+  return row?.paused_at ?? null;
+}
+
+export function pauseEvent(ctx: AppContext, userId: string, eventId: string) {
+  const { event } = requireEventAccess(ctx, userId, eventId, "assistant");
   if (event.status !== "live") throw conflict("Event is not live", "EVENT_NOT_LIVE");
   const now = ctx.clock.now();
   withTx(ctx.db, () => {
-    ctx.db.prepare(`UPDATE events SET status = 'completed', completed_at = ? WHERE id = ?`).run(now, eventId);
+    ctx.db.prepare(`UPDATE events SET status = 'paused', paused_at = ? WHERE id = ?`).run(now, eventId);
+    appendLog(ctx, eventId, "event.paused", { pausedAt: now });
+  });
+  ctx.bus.publish(eventId, currentSeq(ctx, eventId), "event.paused");
+  return loadEvent(ctx, eventId);
+}
+
+export function resetEventClock(ctx: AppContext, userId: string, eventId: string) {
+  const { event, meet } = requireEventAccess(ctx, userId, eventId, "coach");
+  if (event.status !== "paused") throw conflict("Pause the race before resetting the clock", "EVENT_NOT_PAUSED");
+  const athletes = ctx.db
+    .prepare(`SELECT DISTINCT athlete_id AS athleteId FROM event_entries WHERE event_id = ?`)
+    .all(eventId) as { athleteId: string }[];
+  withTx(ctx.db, () => {
+    clearEventTiming(ctx.db, eventId);
+    ctx.db
+      .prepare(
+        `UPDATE events SET status = 'upcoming', started_at = NULL, paused_at = NULL, completed_at = NULL WHERE id = ?`,
+      )
+      .run(eventId);
     const remainingLive = ctx.db
-      .prepare(`SELECT COUNT(*) AS n FROM events WHERE meet_id = ? AND status = 'live'`)
+      .prepare(`SELECT COUNT(*) AS n FROM events WHERE meet_id = ? AND status IN ('live', 'paused')`)
+      .get(event.meet_id) as { n: number };
+    if (remainingLive.n === 0) {
+      ctx.db.prepare(`UPDATE meets SET status = 'scheduled' WHERE id = ? AND status = 'live'`).run(meet.id);
+    }
+    if (event.distance_meters != null) {
+      for (const row of athletes) {
+        recomputeTimeRecords(ctx, {
+          athleteId: row.athleteId,
+          seasonId: meet.season_id,
+          discipline: event.discipline,
+          distanceMeters: event.distance_meters,
+        });
+      }
+    }
+    appendLog(ctx, eventId, "event.reset", {});
+  });
+  ctx.bus.publish(eventId, currentSeq(ctx, eventId), "event.reset");
+  return loadEvent(ctx, eventId);
+}
+
+export function completeEvent(ctx: AppContext, userId: string, eventId: string) {
+  const { event, meet } = requireEventAccess(ctx, userId, eventId, "coach");
+  if (event.status !== "live" && event.status !== "paused") {
+    throw conflict("Event is not live", "EVENT_NOT_LIVE");
+  }
+  const now = ctx.clock.now();
+  const pausedAt = loadPausedAt(ctx, eventId);
+  const completedAt = event.status === "paused" && pausedAt != null ? pausedAt : now;
+  withTx(ctx.db, () => {
+    ctx.db
+      .prepare(`UPDATE events SET status = 'completed', completed_at = ?, paused_at = NULL WHERE id = ?`)
+      .run(completedAt, eventId);
+    const remainingLive = ctx.db
+      .prepare(`SELECT COUNT(*) AS n FROM events WHERE meet_id = ? AND status IN ('live', 'paused')`)
       .get(event.meet_id) as { n: number };
     if (remainingLive.n === 0) {
       ctx.db.prepare(`UPDATE meets SET status = 'completed' WHERE id = ?`).run(meet.id);
     }
-    appendLog(ctx, eventId, "event.completed", { completedAt: now });
+    appendLog(ctx, eventId, "event.completed", { completedAt });
   });
   ctx.bus.publish(eventId, currentSeq(ctx, eventId), "event.completed");
   return loadEvent(ctx, eventId);

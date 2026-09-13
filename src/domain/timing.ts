@@ -50,9 +50,15 @@ export function raceClockMs(
   completedAt: number | null,
   now: number,
   status: string,
+  pausedAt: number | null = null,
 ): number | null {
   if (startedAt == null) return null;
-  const end = status === "completed" && completedAt != null ? completedAt : now;
+  const end =
+    status === "completed" && completedAt != null
+      ? completedAt
+      : status === "paused" && pausedAt != null
+        ? pausedAt
+        : now;
   return Math.max(0, end - startedAt);
 }
 

@@ -8,7 +8,7 @@ import {
   GRADE_LEVELS,
   formatTargetInput,
   parseTimeInput,
-  selectRosterByAttribute,
+  selectRosterByFilters,
 } from "../format";
 
 type RosterDraft = Record<string, { selected: boolean; target: string }>;
@@ -26,6 +26,8 @@ export function MeetPage() {
   const [rosterEvent, setRosterEvent] = useState<EventDetail | null>(null);
   const [rosterDraft, setRosterDraft] = useState<RosterDraft>({});
   const [rosterBusy, setRosterBusy] = useState(false);
+  const [filterGenders, setFilterGenders] = useState<string[]>([]);
+  const [filterGrades, setFilterGrades] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -63,8 +65,24 @@ export function MeetPage() {
     }
   }
 
-  function selectGroup(match: { gender?: string; gradeLevel?: string }) {
-    setRosterDraft((current) => selectRosterByAttribute(athletes, current, match));
+  function applyRosterFilters(genders: string[], grades: string[]) {
+    setRosterDraft((current) => selectRosterByFilters(athletes, current, genders, grades));
+  }
+
+  function toggleFilter(list: string[], value: string): string[] {
+    return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+  }
+
+  function toggleGender(value: string) {
+    const next = toggleFilter(filterGenders, value);
+    setFilterGenders(next);
+    applyRosterFilters(next, filterGrades);
+  }
+
+  function toggleGrade(value: string) {
+    const next = toggleFilter(filterGrades, value);
+    setFilterGrades(next);
+    applyRosterFilters(filterGenders, next);
   }
 
   function draftFrom(event: EventDetail, teamAthletes: Athlete[]): RosterDraft {
@@ -94,6 +112,8 @@ export function MeetPage() {
     try {
       const { event } = await api.event(eventId);
       setRosterEvent(event);
+      setFilterGenders([]);
+      setFilterGrades([]);
       setRosterDraft(draftFrom(event, athletes));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load roster");
@@ -238,7 +258,7 @@ export function MeetPage() {
                     Go to event
                   </Link>
                 )}
-                {event.status === "live" && (
+                {(event.status === "live" || event.status === "paused") && (
                   <Link className="button primary" to={`/events/${event.id}/live`}>
                     Open live
                   </Link>
@@ -263,12 +283,24 @@ export function MeetPage() {
           {athletes.length === 0 && <p className="muted">Add athletes to the team first.</p>}
           <div className="filters">
             {GENDERS.map((value) => (
-              <button key={value} type="button" disabled={rosterLocked} onClick={() => selectGroup({ gender: value })}>
+              <button
+                key={value}
+                type="button"
+                className={filterGenders.includes(value) ? "active" : ""}
+                disabled={rosterLocked}
+                onClick={() => toggleGender(value)}
+              >
                 {GENDER_LABELS[value]}
               </button>
             ))}
             {GRADE_LEVELS.map((value) => (
-              <button key={value} type="button" disabled={rosterLocked} onClick={() => selectGroup({ gradeLevel: value })}>
+              <button
+                key={value}
+                type="button"
+                className={filterGrades.includes(value) ? "active" : ""}
+                disabled={rosterLocked}
+                onClick={() => toggleGrade(value)}
+              >
                 {GRADE_LABELS[value]}
               </button>
             ))}
@@ -319,7 +351,14 @@ export function MeetPage() {
             <button className="primary" disabled={rosterBusy || athletes.length === 0}>
               {rosterBusy ? "Saving…" : "Save roster"}
             </button>
-            <button type="button" onClick={() => setRosterEvent(null)}>
+            <button
+              type="button"
+              onClick={() => {
+                setRosterEvent(null);
+                setFilterGenders([]);
+                setFilterGrades([]);
+              }}
+            >
               Close
             </button>
           </div>

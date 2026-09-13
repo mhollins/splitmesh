@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS events (
   distance_meters INTEGER,
   status TEXT NOT NULL,
   started_at INTEGER,
+  paused_at INTEGER,
   completed_at INTEGER,
   created_at INTEGER NOT NULL
 );
@@ -141,6 +142,7 @@ CREATE TABLE IF NOT EXISTS personal_records (
   mark_value INTEGER NOT NULL,
   performance_id TEXT REFERENCES performances(id),
   source TEXT NOT NULL DEFAULT 'performance',
+  previous_mark_value INTEGER,
   recorded_at INTEGER NOT NULL,
   UNIQUE (athlete_id, discipline, distance_meters, mark_type)
 );

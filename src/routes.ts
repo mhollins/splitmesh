@@ -22,7 +22,9 @@ import {
   getMeet,
   listMeets,
   loadEvent,
+  pauseEvent,
   removeEntry,
+  resetEventClock,
   setEntryTarget,
   startEvent,
   updateMeet,
@@ -295,6 +297,18 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const userId = uid(request, ctx);
     const { eventId } = request.params as { eventId: string };
     return { event: startEvent(ctx, userId, eventId) };
+  });
+
+  app.post("/api/events/:eventId/pause", async (request) => {
+    const userId = uid(request, ctx);
+    const { eventId } = request.params as { eventId: string };
+    return { event: pauseEvent(ctx, userId, eventId) };
+  });
+
+  app.post("/api/events/:eventId/reset", async (request) => {
+    const userId = uid(request, ctx);
+    const { eventId } = request.params as { eventId: string };
+    return { event: resetEventClock(ctx, userId, eventId) };
   });
 
   app.post("/api/events/:eventId/complete", async (request) => {

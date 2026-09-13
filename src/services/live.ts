@@ -306,7 +306,7 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
     .prepare(
       `SELECT e.id, e.meet_id AS meetId, m.name AS meetName, m.team_id AS teamId, m.season_id AS seasonId,
               e.name, e.category, e.discipline, e.distance_meters AS distanceMeters, e.status,
-              e.started_at AS startedAt, e.completed_at AS completedAt
+              e.started_at AS startedAt, e.paused_at AS pausedAt, e.completed_at AS completedAt
        FROM events e JOIN meets m ON m.id = e.meet_id WHERE e.id = ?`,
     )
     .get(eventId) as LiveEventState["event"] | undefined;
@@ -325,7 +325,8 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
       `SELECT ee.id AS entryId, ee.athlete_id AS athleteId, a.first_name AS firstName, a.last_name AS lastName,
               a.gender, a.grade_level AS gradeLevel, ee.bib, ee.target_time_ms AS targetTimeMs,
               p.id AS performanceId, p.status AS performanceStatus,
-              pr.mark_value AS personalRecordMs, sb.mark_value AS seasonBestMs
+              pr.mark_value AS personalRecordMs, pr.previous_mark_value AS previousPersonalRecordMs,
+              pr.performance_id AS personalRecordPerformanceId, sb.mark_value AS seasonBestMs
        FROM event_entries ee
        JOIN athletes a ON a.id = ee.athlete_id
        LEFT JOIN performances p ON p.event_entry_id = ee.id
@@ -356,6 +357,8 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
     performanceId: string | null;
     performanceStatus: string | null;
     personalRecordMs: number | null;
+    previousPersonalRecordMs: number | null;
+    personalRecordPerformanceId: string | null;
     seasonBestMs: number | null;
   }[];
 
@@ -411,6 +414,13 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
       seasonBestMs: entry.seasonBestMs,
       observations: obs,
     });
+    const isNewPersonalRecord = Boolean(
+      summary.finished && entry.performanceId && entry.performanceId === entry.personalRecordPerformanceId,
+    );
+    const prImprovementMs =
+      isNewPersonalRecord && entry.previousPersonalRecordMs != null && entry.personalRecordMs != null
+        ? entry.previousPersonalRecordMs - entry.personalRecordMs
+        : null;
     return {
       entryId: entry.entryId,
       performanceId: entry.performanceId,
@@ -422,6 +432,9 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
       bib: entry.bib,
       targetTimeMs: entry.targetTimeMs,
       personalRecordMs: entry.personalRecordMs,
+      previousPersonalRecordMs: entry.previousPersonalRecordMs,
+      prImprovementMs,
+      isNewPersonalRecord,
       seasonBestMs: entry.seasonBestMs,
       status: entry.performanceStatus ?? "pending",
       summary: {

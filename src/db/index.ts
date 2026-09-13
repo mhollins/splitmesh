@@ -18,6 +18,8 @@ export function openDb(dbPath: string): Db {
   migrateAthletes(db);
   migrateUsers(db);
   migratePersonalRecords(db);
+  migratePreviousMarks(db);
+  migrateEvents(db);
   return db;
 }
 
@@ -69,6 +71,21 @@ function migratePersonalRecords(db: Db): void {
     ALTER TABLE personal_records_v2 RENAME TO personal_records;
   `);
   db.pragma("foreign_keys = ON");
+}
+
+function migratePreviousMarks(db: Db): void {
+  const columns = db.pragma("table_info(personal_records)") as { name: string }[];
+  if (!columns.some((column) => column.name === "previous_mark_value")) {
+    db.exec(`ALTER TABLE personal_records ADD COLUMN previous_mark_value INTEGER`);
+  }
+}
+
+function migrateEvents(db: Db): void {
+  const columns = db.pragma("table_info(events)") as { name: string }[];
+  const names = new Set(columns.map((column) => column.name));
+  if (!names.has("paused_at")) {
+    db.exec(`ALTER TABLE events ADD COLUMN paused_at INTEGER`);
+  }
 }
 
 export function withTx<T>(db: Db, fn: () => T): T {

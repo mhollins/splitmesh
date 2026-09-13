@@ -112,6 +112,10 @@ export const api = {
     }),
   startEvent: (eventId: string) =>
     request<{ event: EventDetail }>(`/api/events/${eventId}/start`, { method: "POST", body: JSON.stringify({}) }),
+  pauseEvent: (eventId: string) =>
+    request<{ event: EventDetail }>(`/api/events/${eventId}/pause`, { method: "POST", body: JSON.stringify({}) }),
+  resetEvent: (eventId: string) =>
+    request<{ event: EventDetail }>(`/api/events/${eventId}/reset`, { method: "POST", body: JSON.stringify({}) }),
   completeEvent: (eventId: string) =>
     request<{ event: EventDetail }>(`/api/events/${eventId}/complete`, { method: "POST", body: JSON.stringify({}) }),
   state: (eventId: string) => request<{ state: LiveState }>(`/api/events/${eventId}/state`),
@@ -192,6 +196,7 @@ export type LiveState = {
     meetName: string;
     status: string;
     startedAt: number | null;
+    pausedAt: number | null;
     completedAt: number | null;
     distanceMeters: number | null;
   };
@@ -207,6 +212,9 @@ export type LiveAthlete = {
   bib: string | null;
   targetTimeMs: number | null;
   personalRecordMs: number | null;
+  previousPersonalRecordMs: number | null;
+  prImprovementMs: number | null;
+  isNewPersonalRecord: boolean;
   seasonBestMs: number | null;
   status: string;
   summary: {

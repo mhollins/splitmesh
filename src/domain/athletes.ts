@@ -33,17 +33,18 @@ export function parseGradeLevel(value: unknown): GradeLevel | null {
 
 export type RosterRow = { selected: boolean; target: string };
 
-export function selectRosterByAttribute<T extends { id: string; gender: string; gradeLevel: string }>(
+export function selectRosterByFilters<T extends { id: string; gender: string; gradeLevel: string }>(
   athletes: T[],
   draft: Record<string, RosterRow>,
-  match: { gender?: string; gradeLevel?: string },
+  genders: readonly string[],
+  grades: readonly string[],
 ): Record<string, RosterRow> {
   const next: Record<string, RosterRow> = { ...draft };
   for (const athlete of athletes) {
     const row = next[athlete.id] ?? { selected: false, target: "" };
-    const selected =
-      match.gender != null ? athlete.gender === match.gender : athlete.gradeLevel === match.gradeLevel;
-    next[athlete.id] = { ...row, selected };
+    const genderOk = genders.length === 0 || genders.includes(athlete.gender);
+    const gradeOk = grades.length === 0 || grades.includes(athlete.gradeLevel);
+    next[athlete.id] = { ...row, selected: genderOk && gradeOk };
   }
   return next;
 }

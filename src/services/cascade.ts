@@ -43,6 +43,19 @@ export function deleteEvents(db: Db, eventIds: string[]): void {
   db.prepare(`DELETE FROM events WHERE id IN (${list})`).run(...eventIds);
 }
 
+export function clearEventTiming(db: Db, eventId: string): void {
+  db.prepare(`UPDATE timing_observations SET conflicts_with_id = NULL WHERE event_id = ?`).run(eventId);
+  db.prepare(`DELETE FROM timing_observations WHERE event_id = ?`).run(eventId);
+  db.prepare(`DELETE FROM event_log WHERE event_id = ?`).run(eventId);
+  db.prepare(
+    `DELETE FROM personal_records WHERE performance_id IN (SELECT id FROM performances WHERE event_id = ?)`,
+  ).run(eventId);
+  db.prepare(
+    `DELETE FROM season_bests WHERE performance_id IN (SELECT id FROM performances WHERE event_id = ?)`,
+  ).run(eventId);
+  db.prepare(`DELETE FROM performances WHERE event_id = ?`).run(eventId);
+}
+
 export function deleteAthleteGraph(db: Db, athleteId: string): void {
   db.prepare(`UPDATE timing_observations SET conflicts_with_id = NULL WHERE athlete_id = ?`).run(athleteId);
   db.prepare(`DELETE FROM timing_observations WHERE athlete_id = ?`).run(athleteId);

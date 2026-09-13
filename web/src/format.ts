@@ -4,7 +4,7 @@ import {
   GENDERS,
   GRADE_LABELS,
   GRADE_LEVELS,
-  selectRosterByAttribute,
+  selectRosterByFilters,
 } from "../../src/domain/athletes";
 
 export {
@@ -15,8 +15,14 @@ export {
   GENDER_LABELS,
   GRADE_LEVELS,
   GRADE_LABELS,
-  selectRosterByAttribute,
+  selectRosterByFilters,
 };
+
+export function formatPrGain(improvementMs: number | null, isNew: boolean): string {
+  if (!isNew) return "";
+  if (improvementMs == null || improvementMs <= 0) return "PR";
+  return `PR −${formatMs(improvementMs)}`;
+}
 
 export function formatDelta(ms: number | null): string {
   if (ms == null) return "";

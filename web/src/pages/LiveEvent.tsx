@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type LiveAthlete, type LiveState } from "../api";
-import { formatDelta, formatMs, formatPace, GENDER_LABELS, GRADE_LABELS, raceClockMs } from "../format";
+import { formatDelta, formatMs, formatPace, formatPrGain, GENDER_LABELS, GRADE_LABELS, raceClockMs } from "../format";
 
 export function LiveEventPage() {
   const { eventId } = useParams();
@@ -9,11 +16,12 @@ export function LiveEventPage() {
   const [pointId, setPointId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [connected, setConnected] = useState(false);
-  const [undo, setUndo] = useState<{ id: string; name: string; pointName: string } | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
+  const [bursting, setBursting] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState<string | null>(null);
   const sse = useRef<{ close: () => void; open: () => void } | null>(null);
+  const celebrated = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (state?.event.status === "completed") return;
@@ -57,6 +65,29 @@ export function LiveEventPage() {
     };
   }, [eventId]);
 
+  useEffect(() => {
+    if (!state || state.event.status === "completed") return;
+    const timeouts: number[] = [];
+    for (const athlete of state.athletes) {
+      const key = athlete.athleteId;
+      if (!athlete.isNewPersonalRecord || celebrated.current.has(key)) continue;
+      celebrated.current.add(key);
+      setBursting((current) => new Set(current).add(athlete.athleteId));
+      timeouts.push(
+        window.setTimeout(() => {
+          setBursting((current) => {
+            const next = new Set(current);
+            next.delete(athlete.athleteId);
+            return next;
+          });
+        }, 1600),
+      );
+    }
+    return () => {
+      for (const timeout of timeouts) window.clearTimeout(timeout);
+    };
+  }, [state]);
+
   const selectedPoint = state?.timingPoints.find((p) => p.id === pointId) ?? state?.timingPoints[0];
 
   const athletes = useMemo(() => {
@@ -79,13 +110,10 @@ export function LiveEventPage() {
         return ae - be;
       });
     }
-    return filtered.sort((a, b) => {
-      const aDone = hasSplit(a, selectedPoint?.id);
-      const bDone = hasSplit(b, selectedPoint?.id);
-      if (aDone !== bDone) return aDone ? 1 : -1;
-      return a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName);
-    });
-  }, [state, query, selectedPoint?.id]);
+    return filtered.sort(
+      (a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName),
+    );
+  }, [state, query]);
 
   async function tap(athlete: LiveAthlete) {
     if (!eventId || !selectedPoint) return;
@@ -104,12 +132,6 @@ export function LiveEventPage() {
         idempotencyKey: key,
         clientObservedAt: Date.now(),
       });
-      const observation = (result as { observation: { id: string; role: string } }).observation;
-      setUndo({
-        id: observation.id,
-        name: `${athlete.firstName} ${athlete.lastName}`,
-        pointName: selectedPoint.name,
-      });
       const snapshot = await api.state(eventId);
       setState(snapshot.state);
     } catch (err) {
@@ -124,25 +146,44 @@ export function LiveEventPage() {
     }
   }
 
-  async function undoLast() {
-    if (!undo) return;
-    await api.retract(undo.id);
-    setUndo(null);
+  async function undoObservation(observationId: string) {
+    if (!eventId) return;
+    setError(null);
+    sse.current?.close();
+    try {
+      await api.retract(observationId);
+      const snapshot = await api.state(eventId);
+      setState(snapshot.state);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not undo");
+    } finally {
+      sse.current?.open();
+    }
   }
 
   if (!state || !selectedPoint) return <main className="page">Connecting to live event…</main>;
 
-  const clockMs = raceClockMs(state.event.startedAt, state.event.completedAt, now, state.event.status);
+  const clockMs = raceClockMs(
+    state.event.startedAt,
+    state.event.completedAt,
+    now,
+    state.event.status,
+    state.event.pausedAt,
+  );
   const elapsedClock = clockMs == null ? "0:00.0" : formatMs(clockMs);
   const finished = state.event.status === "completed";
   const upcoming = state.event.status === "upcoming";
+  const paused = state.event.status === "paused";
+  const running = state.event.status === "live";
   const statusLabel = finished
     ? "Finished"
     : upcoming
       ? "Ready"
-      : connected
-        ? "Live"
-        : "Reconnecting";
+      : paused
+        ? "Paused"
+        : connected
+          ? "Live"
+          : "Reconnecting";
 
   async function startRace() {
     if (!eventId) return;
@@ -154,6 +195,32 @@ export function LiveEventPage() {
       setNow(Date.now());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start race");
+    }
+  }
+
+  async function pauseRace() {
+    if (!eventId) return;
+    setError(null);
+    try {
+      await api.pauseEvent(eventId);
+      const snapshot = await api.state(eventId);
+      setState(snapshot.state);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not pause race");
+    }
+  }
+
+  async function resetClock() {
+    if (!eventId) return;
+    if (!confirm("Reset the clock to 0:00.0? Recorded splits for this event will be cleared.")) return;
+    setError(null);
+    try {
+      await api.resetEvent(eventId);
+      const snapshot = await api.state(eventId);
+      setState(snapshot.state);
+      setNow(Date.now());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reset clock");
     }
   }
 
@@ -181,20 +248,32 @@ export function LiveEventPage() {
           <h1>{state.event.name}</h1>
           <div className="clock">{elapsedClock}</div>
           <div className="live-meta">
-            <span className={finished ? "pill" : upcoming ? "pill" : connected ? "pill ok" : "pill warn"}>
+            <span className={finished ? "pill" : upcoming ? "pill" : paused ? "pill warn" : connected ? "pill ok" : "pill warn"}>
               {statusLabel}
             </span>
-            {upcoming && (
-              <button type="button" className="primary" onClick={() => void startRace()}>
-                Start race
-              </button>
-            )}
-            {state.event.status === "live" && (
-              <button type="button" onClick={() => void finishRace()}>
-                Finish race
-              </button>
-            )}
           </div>
+          {!finished && (
+            <div className="clock-actions">
+              <div className="clock-actions-start">
+                {running ? (
+                  <button type="button" className="primary" onClick={() => void pauseRace()}>
+                    Pause
+                  </button>
+                ) : (
+                  <button type="button" className="primary" onClick={() => void startRace()}>
+                    Start
+                  </button>
+                )}
+              </div>
+              <div className="clock-actions-reset">
+                {paused && (
+                  <button type="button" onClick={() => void resetClock()}>
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
         {!finished && (
           <div className="points">
@@ -202,10 +281,7 @@ export function LiveEventPage() {
               <button
                 key={point.id}
                 className={point.id === selectedPoint.id ? "point active" : "point"}
-                onClick={() => {
-                  if (point.id !== selectedPoint.id) setUndo(null);
-                  setPointId(point.id);
-                }}
+                onClick={() => setPointId(point.id)}
               >
                 {point.name}
               </button>
@@ -223,14 +299,6 @@ export function LiveEventPage() {
       />
 
       {error && <p className="error">{error}</p>}
-      {undo && !finished && (
-        <div className="undo">
-          Recorded {undo.name} at {undo.pointName}.
-          <button type="button" onClick={() => void undoLast()}>
-            Undo
-          </button>
-        </div>
-      )}
 
       <ul className="athletes">
         {athletes.map((athlete) => (
@@ -239,13 +307,38 @@ export function LiveEventPage() {
             athlete={athlete}
             selectedPointId={selectedPoint.id}
             pending={pending.has(athlete.athleteId)}
-            live={state.event.status === "live"}
+            live={running}
+            bursting={bursting.has(athlete.athleteId)}
             onTap={() => void tap(athlete)}
-            onNotLive={() => setError("This race is not live, so splits cannot be recorded.")}
+            onUndo={(observationId) => void undoObservation(observationId)}
+            onNotLive={() =>
+              setError(
+                paused
+                  ? "Resume the race to record splits."
+                  : "This race is not live, so splits cannot be recorded.",
+              )
+            }
           />
         ))}
       </ul>
+      {(running || paused) && (
+        <div className="finish-bar">
+          <button type="button" className="danger" onClick={() => void finishRace()}>
+            Finish race
+          </button>
+        </div>
+      )}
     </main>
+  );
+}
+
+function Sparks() {
+  return (
+    <span className="sparks" aria-hidden>
+      {Array.from({ length: 14 }, (_, index) => (
+        <span key={index} className="spark" style={{ "--i": index } as CSSProperties} />
+      ))}
+    </span>
   );
 }
 
@@ -259,18 +352,28 @@ function newClientId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function observationToUndo(athlete: LiveAthlete, timingPointId: string): string | null {
+  const conflict = athlete.summary.conflicts.find((item) => item.timingPointId === timingPointId);
+  if (conflict) return conflict.observationId;
+  const split = athlete.summary.splits.find((item) => item.timingPointId === timingPointId);
+  return split?.observationId ?? null;
+}
+
 function AthleteRow(props: {
   athlete: LiveAthlete;
   selectedPointId: string;
   pending: boolean;
   live: boolean;
+  bursting: boolean;
   onTap: () => void;
+  onUndo: (observationId: string) => void;
   onNotLive: () => void;
 }) {
-  const { athlete, selectedPointId, pending, live, onTap, onNotLive } = props;
+  const { athlete, selectedPointId, pending, live, bursting, onTap, onUndo, onNotLive } = props;
   const origin = useRef<{ x: number; y: number } | null>(null);
   const ignoreClick = useRef(false);
   const recorded = hasSplit(athlete, selectedPointId);
+  const undoId = observationToUndo(athlete, selectedPointId);
   const last = athlete.summary.splits.at(-1);
   const vs = last?.vsTargetMs ?? athlete.summary.vsTargetMs;
   const totalMs = athlete.summary.elapsedMs ?? last?.elapsedMs ?? null;
@@ -322,9 +425,10 @@ function AthleteRow(props: {
   return (
     <li>
       <div
-        className={`athlete ${recorded ? "done" : ""} ${pending ? "pending" : ""} ${live ? "" : "result"}`}
+        className={`athlete ${recorded ? "done" : ""} ${pending ? "pending" : ""} ${live ? "" : "result"} ${athlete.isNewPersonalRecord ? "pr-new" : ""}`}
         {...tapProps}
       >
+        {bursting && <Sparks />}
         <span className="who">
           <strong>
             {athlete.lastName}, {athlete.firstName}
@@ -334,7 +438,12 @@ function AthleteRow(props: {
             {GRADE_LABELS[athlete.gradeLevel as keyof typeof GRADE_LABELS] ?? athlete.gradeLevel}
           </span>
           {athlete.summary.conflicts.length > 0 && <span className="conflict">conflict</span>}
-          {athlete.summary.onPersonalRecordPace && <span className="badge">PR pace</span>}
+          {athlete.isNewPersonalRecord && (
+            <span className="pr-flash">{formatPrGain(athlete.prImprovementMs, true)}</span>
+          )}
+          {!athlete.isNewPersonalRecord && athlete.summary.onPersonalRecordPace && (
+            <span className="badge">PR pace</span>
+          )}
         </span>
         {live ? (
           <>
@@ -350,6 +459,24 @@ function AthleteRow(props: {
                 <span>proj {formatMs(athlete.summary.projectedFinishMs)}</span>
               )}
             </span>
+            {undoId && (
+              <button
+                type="button"
+                className="athlete-undo"
+                onPointerDown={(event) => event.stopPropagation()}
+                onPointerUp={(event) => {
+                  event.stopPropagation();
+                  event.preventDefault();
+                  onUndo(undoId);
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  event.preventDefault();
+                }}
+              >
+                Undo
+              </button>
+            )}
           </>
         ) : (
           <>
@@ -373,7 +500,16 @@ function AthleteRow(props: {
               </span>
             )}
             <span className="records">
-              {athlete.personalRecordMs != null && <span>PR {formatMs(athlete.personalRecordMs)}</span>}
+              {athlete.isNewPersonalRecord ? (
+                <span className="pr-flash">
+                  {formatPrGain(athlete.prImprovementMs, true)}
+                  {athlete.previousPersonalRecordMs != null && (
+                    <> was {formatMs(athlete.previousPersonalRecordMs)}</>
+                  )}
+                </span>
+              ) : (
+                athlete.personalRecordMs != null && <span>PR {formatMs(athlete.personalRecordMs)}</span>
+              )}
               {athlete.seasonBestMs != null && <span>SB {formatMs(athlete.seasonBestMs)}</span>}
             </span>
           </>

@@ -82,25 +82,25 @@ export function upsertManualRecord(
 
   const existing = ctx.db
     .prepare(
-      `SELECT id FROM personal_records
+      `SELECT id, mark_value AS markValue FROM personal_records
        WHERE athlete_id = ? AND discipline = ? AND distance_meters = ? AND mark_type = 'time_ms'`,
     )
-    .get(athleteId, discipline, input.distanceMeters) as { id: string } | undefined;
+    .get(athleteId, discipline, input.distanceMeters) as { id: string; markValue: number } | undefined;
   const now = ctx.clock.now();
   if (existing) {
     ctx.db
       .prepare(
         `UPDATE personal_records
-         SET mark_value = ?, source = 'manual', performance_id = NULL, recorded_at = ?
+         SET mark_value = ?, source = 'manual', performance_id = NULL, previous_mark_value = ?, recorded_at = ?
          WHERE id = ?`,
       )
-      .run(input.markValueMs, now, existing.id);
+      .run(input.markValueMs, existing.markValue, now, existing.id);
   } else {
     ctx.db
       .prepare(
         `INSERT INTO personal_records
-           (id, athlete_id, discipline, distance_meters, mark_type, mark_value, performance_id, source, recorded_at)
-         VALUES (?, ?, ?, ?, 'time_ms', ?, NULL, 'manual', ?)`,
+           (id, athlete_id, discipline, distance_meters, mark_type, mark_value, performance_id, source, previous_mark_value, recorded_at)
+         VALUES (?, ?, ?, ?, 'time_ms', ?, NULL, 'manual', NULL, ?)`,
       )
       .run(newId(), athleteId, discipline, input.distanceMeters, input.markValueMs, now);
   }
@@ -171,14 +171,22 @@ export function recomputeTimeRecords(
 
   const existing = ctx.db
     .prepare(
-      `SELECT id, mark_value, source FROM personal_records
+      `SELECT id, mark_value, source, performance_id, previous_mark_value FROM personal_records
        WHERE athlete_id = ? AND discipline = ? AND distance_meters = ? AND mark_type = 'time_ms'`,
     )
     .get(args.athleteId, args.discipline, args.distanceMeters) as
-    | { id: string; mark_value: number; source: string }
+    | {
+        id: string;
+        mark_value: number;
+        source: string;
+        performance_id: string | null;
+        previous_mark_value: number | null;
+      }
     | undefined;
 
   if (bestOverall && (!existing || bestOverall.elapsed_ms < existing.mark_value)) {
+    const previousMark =
+      existing && existing.performance_id !== bestOverall.id ? existing.mark_value : (existing?.previous_mark_value ?? null);
     ctx.db
       .prepare(
         `DELETE FROM personal_records
@@ -188,8 +196,8 @@ export function recomputeTimeRecords(
     ctx.db
       .prepare(
         `INSERT INTO personal_records
-           (id, athlete_id, discipline, distance_meters, mark_type, mark_value, performance_id, source, recorded_at)
-         VALUES (?, ?, ?, ?, 'time_ms', ?, ?, 'performance', ?)`,
+           (id, athlete_id, discipline, distance_meters, mark_type, mark_value, performance_id, source, previous_mark_value, recorded_at)
+         VALUES (?, ?, ?, ?, 'time_ms', ?, ?, 'performance', ?, ?)`,
       )
       .run(
         newId(),
@@ -198,6 +206,7 @@ export function recomputeTimeRecords(
         args.distanceMeters,
         bestOverall.elapsed_ms,
         bestOverall.id,
+        previousMark,
         bestOverall.finished_at ?? ctx.clock.now(),
       );
   } else if (!bestOverall && existing && existing.source !== "manual") {

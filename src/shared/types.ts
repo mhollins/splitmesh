@@ -14,6 +14,7 @@ export type LiveEventState = {
     distanceMeters: number | null;
     status: string;
     startedAt: number | null;
+    pausedAt: number | null;
     completedAt: number | null;
   };
   timingPoints: {
@@ -37,6 +38,9 @@ export type LiveAthlete = {
   bib: string | null;
   targetTimeMs: number | null;
   personalRecordMs: number | null;
+  previousPersonalRecordMs: number | null;
+  prImprovementMs: number | null;
+  isNewPersonalRecord: boolean;
   seasonBestMs: number | null;
   status: string;
   summary: {

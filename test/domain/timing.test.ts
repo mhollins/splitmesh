@@ -26,6 +26,7 @@ describe("elapsed time and splits", () => {
     const later = 2_000_000;
     expect(raceClockMs(gun, finished, later, "completed")).toBe(400_000);
     expect(raceClockMs(gun, null, later, "live")).toBe(1_000_000);
+    expect(raceClockMs(gun, null, later, "paused", gun + 250_000)).toBe(250_000);
   });
 });
 

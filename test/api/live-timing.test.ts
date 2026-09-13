@@ -225,6 +225,9 @@ describe("personal records and season bests", () => {
     athlete = state.athletes.find((row: { athleteId: string }) => row.athleteId === maya.id);
     expect(athlete.personalRecordMs).toBe(1_140_000);
     expect(athlete.summary.finished).toBe(true);
+    expect(athlete.isNewPersonalRecord).toBe(true);
+    expect(athlete.previousPersonalRecordMs).toBe(1_152_000);
+    expect(athlete.prImprovementMs).toBe(12_000);
   });
 });
 
@@ -253,6 +256,57 @@ describe("history after the race", () => {
     const athlete = state.athletes.find((row: { athleteId: string }) => row.athleteId === maya.id);
     expect(athlete.summary.splits).toHaveLength(1);
     expect(state.event.status).toBe("completed");
+  });
+});
+
+describe("pause, resume, and reset", () => {
+  it("freezes the clock while paused and resumes without changing recorded splits", async () => {
+    const harness = await createHarness();
+    app = harness.app;
+    const { clock } = harness;
+    const { a, maya, event } = await setupLiveRace(app);
+    const mile1 = event.timingPoints.find((p: { name: string }) => p.name === "Mile 1");
+    clock.advance(60_000);
+    await api(app, a.cookie, "POST", `/api/events/${event.id}/observations`, {
+      athleteId: maya.id,
+      timingPointId: mile1.id,
+      idempotencyKey: "m1",
+    });
+    const paused = await api(app, a.cookie, "POST", `/api/events/${event.id}/pause`);
+    expect(paused.statusCode).toBe(200);
+    expect(paused.json().event.status).toBe("paused");
+    clock.advance(120_000);
+    const blocked = await api(app, a.cookie, "POST", `/api/events/${event.id}/observations`, {
+      athleteId: maya.id,
+      timingPointId: event.timingPoints[1].id,
+      idempotencyKey: "during-pause",
+    });
+    expect(blocked.statusCode).toBe(409);
+    const resumed = await api(app, a.cookie, "POST", `/api/events/${event.id}/start`);
+    expect(resumed.json().event.status).toBe("live");
+    const state = (await api(app, a.cookie, "GET", `/api/events/${event.id}/state`)).json().state;
+    const athlete = state.athletes.find((row: { athleteId: string }) => row.athleteId === maya.id);
+    expect(athlete.summary.splits[0].elapsedMs).toBe(60_000);
+  });
+
+  it("resets the clock to zero from pause and clears splits", async () => {
+    const harness = await createHarness();
+    app = harness.app;
+    const { a, maya, event } = await setupLiveRace(app);
+    const mile1 = event.timingPoints.find((p: { name: string }) => p.name === "Mile 1");
+    await api(app, a.cookie, "POST", `/api/events/${event.id}/observations`, {
+      athleteId: maya.id,
+      timingPointId: mile1.id,
+      idempotencyKey: "m1",
+    });
+    await api(app, a.cookie, "POST", `/api/events/${event.id}/pause`);
+    const reset = await api(app, a.cookie, "POST", `/api/events/${event.id}/reset`);
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json().event.status).toBe("upcoming");
+    expect(reset.json().event.startedAt).toBeNull();
+    const state = (await api(app, a.cookie, "GET", `/api/events/${event.id}/state`)).json().state;
+    const athlete = state.athletes.find((row: { athleteId: string }) => row.athleteId === maya.id);
+    expect(athlete.summary.splits).toHaveLength(0);
   });
 });
 
