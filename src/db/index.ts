@@ -20,6 +20,8 @@ export function openDb(dbPath: string): Db {
   migratePersonalRecords(db);
   migratePreviousMarks(db);
   migrateEvents(db);
+  migrateEventTypeId(db);
+  migrate3200Splits(db);
   return db;
 }
 
@@ -85,6 +87,91 @@ function migrateEvents(db: Db): void {
   const names = new Set(columns.map((column) => column.name));
   if (!names.has("paused_at")) {
     db.exec(`ALTER TABLE events ADD COLUMN paused_at INTEGER`);
+  }
+}
+
+function migrateEventTypeId(db: Db): void {
+  const columns = db.pragma("table_info(events)") as { name: string }[];
+  if (!columns.some((column) => column.name === "event_type_id")) {
+    db.exec(`ALTER TABLE events ADD COLUMN event_type_id TEXT REFERENCES event_types(id)`);
+  }
+}
+
+export function migrate3200Splits(db: Db): void {
+  const events = db
+    .prepare(`SELECT id FROM events WHERE distance_meters = 3200`)
+    .all() as { id: string }[];
+  const updatePoint = db.prepare(
+    `UPDATE timing_points SET name = ?, distance_meters = ?, sort_order = ?, is_finish = ? WHERE id = ?`,
+  );
+  for (const event of events) {
+    const points = db
+      .prepare(
+        `SELECT id, name, distance_meters AS distanceMeters, sort_order AS sortOrder, is_finish AS isFinish
+         FROM timing_points WHERE event_id = ? ORDER BY sort_order`,
+      )
+      .all(event.id) as {
+      id: string;
+      name: string;
+      distanceMeters: number;
+      sortOrder: number;
+      isFinish: number;
+    }[];
+    const thousand = points.find((point) => point.distanceMeters === 1000 || point.name === "1000m");
+    const twoThousand = points.find((point) => point.distanceMeters === 2000 || point.name === "2000m");
+    const mile = points.find((point) => point.distanceMeters === 1609 || /mile/i.test(point.name));
+    const finish = points.find((point) => point.isFinish) ?? points.at(-1);
+    if (!thousand && !twoThousand) continue;
+
+    let mileId = mile?.id;
+    if (thousand) {
+      if (!mileId || mileId === thousand.id) {
+        updatePoint.run("1 Mile", 1609, 1, 0, thousand.id);
+        mileId = thousand.id;
+      } else {
+        rehomeObservations(db, thousand.id, mileId);
+        db.prepare(`DELETE FROM timing_points WHERE id = ?`).run(thousand.id);
+      }
+    } else if (!mileId) {
+      mileId = crypto.randomUUID();
+      db.prepare(
+        `INSERT INTO timing_points (id, event_id, name, distance_meters, sort_order, is_finish)
+         VALUES (?, ?, '1 Mile', 1609, 1, 0)`,
+      ).run(mileId, event.id);
+    }
+
+    if (twoThousand) {
+      db.prepare(`UPDATE timing_observations SET conflicts_with_id = NULL WHERE timing_point_id = ?`).run(
+        twoThousand.id,
+      );
+      db.prepare(`DELETE FROM timing_observations WHERE timing_point_id = ?`).run(twoThousand.id);
+      db.prepare(`DELETE FROM timing_points WHERE id = ?`).run(twoThousand.id);
+    }
+
+    if (finish && finish.id !== mileId) {
+      updatePoint.run("Finish", 3200, 2, 1, finish.id);
+    }
+  }
+}
+
+function rehomeObservations(db: Db, fromPointId: string, toPointId: string): void {
+  const rows = db
+    .prepare(`SELECT id, performance_id AS performanceId, role FROM timing_observations WHERE timing_point_id = ?`)
+    .all(fromPointId) as { id: string; performanceId: string; role: string }[];
+  for (const row of rows) {
+    const existingPrimary = db
+      .prepare(
+        `SELECT id FROM timing_observations
+         WHERE performance_id = ? AND timing_point_id = ? AND role = 'primary' AND id != ?`,
+      )
+      .get(row.performanceId, toPointId, row.id) as { id: string } | undefined;
+    if (existingPrimary && row.role === "primary") {
+      db.prepare(
+        `UPDATE timing_observations SET timing_point_id = ?, role = 'conflict', conflicts_with_id = ? WHERE id = ?`,
+      ).run(toPointId, existingPrimary.id, row.id);
+    } else {
+      db.prepare(`UPDATE timing_observations SET timing_point_id = ? WHERE id = ?`).run(toPointId, row.id);
+    }
   }
 }
 

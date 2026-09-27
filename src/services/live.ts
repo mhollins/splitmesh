@@ -36,6 +36,7 @@ export function recordObservation(
     timingPointId: string;
     idempotencyKey: string;
     clientObservedAt?: number | null;
+    elapsedMs?: number | null;
   },
 ) {
   if (!input.idempotencyKey?.trim()) throw badRequest("idempotencyKey is required");
@@ -71,7 +72,13 @@ export function recordObservation(
         }
       | undefined;
     if (!event) throw notFound("Event not found");
-    if (event.status !== "live" || event.started_at == null) {
+    if (event.started_at == null) throw conflict("Event is not live", "EVENT_NOT_LIVE");
+    const now = ctx.clock.now();
+    let observedAt = now;
+    if (input.elapsedMs != null) {
+      if (!Number.isFinite(input.elapsedMs) || input.elapsedMs < 0) throw badRequest("elapsedMs must be a non-negative time");
+      observedAt = event.started_at + Math.round(input.elapsedMs);
+    } else if (event.status !== "live") {
       throw conflict("Event is not live", "EVENT_NOT_LIVE");
     }
 
@@ -89,7 +96,6 @@ export function recordObservation(
       .get(eventId, input.athleteId) as { id: string; status: string } | undefined;
     if (!performance) throw badRequest("Athlete is not in this event");
 
-    const now = ctx.clock.now();
     const primary = ctx.db
       .prepare(
         `SELECT id FROM timing_observations
@@ -113,7 +119,7 @@ export function recordObservation(
         performance.id,
         input.athleteId,
         input.timingPointId,
-        now,
+        observedAt,
         input.clientObservedAt ?? null,
         now,
         userId,
@@ -212,8 +218,6 @@ export function retractObservation(ctx: AppContext, userId: string, observationI
       distance_meters: number | null;
       season_id: string;
     };
-    if (event.status === "completed") throw conflict("Event already completed", "EVENT_COMPLETED");
-
     const now = ctx.clock.now();
     ctx.db
       .prepare(
@@ -288,6 +292,119 @@ export function retractObservation(ctx: AppContext, userId: string, observationI
   });
 
   ctx.bus.publish(loaded.event_id, result.seq, "observation.retracted");
+  return result;
+}
+
+export function correctObservation(ctx: AppContext, userId: string, observationId: string, elapsedMs: number) {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) throw badRequest("elapsedMs must be a non-negative time");
+  const loaded = ctx.db
+    .prepare(`SELECT * FROM timing_observations WHERE id = ?`)
+    .get(observationId) as ObsRow | undefined;
+  if (!loaded) throw notFound("Observation not found");
+  requireEventAccess(ctx, userId, loaded.event_id, "coach");
+  if (loaded.role === "retracted") throw conflict("Observation was retracted", "OBSERVATION_RETRACTED");
+
+  const result = withTx(ctx.db, () => {
+    const event = ctx.db
+      .prepare(
+        `SELECT e.started_at, e.discipline, e.distance_meters, m.season_id
+         FROM events e JOIN meets m ON m.id = e.meet_id WHERE e.id = ?`,
+      )
+      .get(loaded.event_id) as {
+      started_at: number | null;
+      discipline: string;
+      distance_meters: number | null;
+      season_id: string;
+    };
+    if (event.started_at == null) throw conflict("Event has no start time", "EVENT_NOT_LIVE");
+    const observedAt = event.started_at + Math.round(elapsedMs);
+    ctx.db.prepare(`UPDATE timing_observations SET observed_at = ? WHERE id = ?`).run(observedAt, observationId);
+    if (loaded.role === "primary") {
+      const point = ctx.db
+        .prepare(`SELECT is_finish FROM timing_points WHERE id = ?`)
+        .get(loaded.timing_point_id) as { is_finish: number };
+      applyPrimaryEffects(ctx, {
+        event,
+        performanceId: loaded.performance_id,
+        athleteId: loaded.athlete_id,
+        isFinish: Boolean(point.is_finish),
+        observedAt,
+      });
+    }
+    const log = appendLog(ctx, loaded.event_id, "observation.corrected", {
+      observationId,
+      athleteId: loaded.athlete_id,
+      timingPointId: loaded.timing_point_id,
+      elapsedMs: Math.round(elapsedMs),
+    });
+    const observation = ctx.db.prepare(`SELECT * FROM timing_observations WHERE id = ?`).get(observationId) as ObsRow;
+    return { observation, seq: log.seq };
+  });
+  ctx.bus.publish(loaded.event_id, result.seq, "observation.corrected");
+  return result;
+}
+
+export function promoteObservation(ctx: AppContext, userId: string, observationId: string) {
+  const loaded = ctx.db
+    .prepare(`SELECT * FROM timing_observations WHERE id = ?`)
+    .get(observationId) as ObsRow | undefined;
+  if (!loaded) throw notFound("Observation not found");
+  requireEventAccess(ctx, userId, loaded.event_id, "coach");
+  if (loaded.role === "retracted") throw conflict("Observation was retracted", "OBSERVATION_RETRACTED");
+  if (loaded.role === "primary") {
+    return { observation: loaded, seq: nextSeq(ctx, loaded.event_id) };
+  }
+
+  const result = withTx(ctx.db, () => {
+    const event = ctx.db
+      .prepare(
+        `SELECT e.discipline, e.distance_meters, m.season_id
+         FROM events e JOIN meets m ON m.id = e.meet_id WHERE e.id = ?`,
+      )
+      .get(loaded.event_id) as {
+      discipline: string;
+      distance_meters: number | null;
+      season_id: string;
+    };
+    const currentPrimary = ctx.db
+      .prepare(
+        `SELECT id FROM timing_observations
+         WHERE performance_id = ? AND timing_point_id = ? AND role = 'primary'`,
+      )
+      .get(loaded.performance_id, loaded.timing_point_id) as { id: string } | undefined;
+    if (currentPrimary) {
+      ctx.db
+        .prepare(`UPDATE timing_observations SET role = 'conflict', conflicts_with_id = ? WHERE id = ?`)
+        .run(observationId, currentPrimary.id);
+    }
+    ctx.db
+      .prepare(`UPDATE timing_observations SET role = 'primary', conflicts_with_id = NULL WHERE id = ?`)
+      .run(observationId);
+    ctx.db
+      .prepare(
+        `UPDATE timing_observations SET conflicts_with_id = ?
+         WHERE performance_id = ? AND timing_point_id = ? AND role = 'conflict' AND id != ?`,
+      )
+      .run(observationId, loaded.performance_id, loaded.timing_point_id, observationId);
+    const point = ctx.db
+      .prepare(`SELECT is_finish FROM timing_points WHERE id = ?`)
+      .get(loaded.timing_point_id) as { is_finish: number };
+    applyPrimaryEffects(ctx, {
+      event,
+      performanceId: loaded.performance_id,
+      athleteId: loaded.athlete_id,
+      isFinish: Boolean(point.is_finish),
+      observedAt: loaded.observed_at,
+    });
+    const log = appendLog(ctx, loaded.event_id, "observation.promoted", {
+      observationId,
+      athleteId: loaded.athlete_id,
+      timingPointId: loaded.timing_point_id,
+    });
+    const observation = ctx.db.prepare(`SELECT * FROM timing_observations WHERE id = ?`).get(observationId) as ObsRow;
+    return { observation, seq: log.seq };
+  });
+  ctx.bus.publish(loaded.event_id, result.seq, "observation.promoted");
   return result;
 }
 

@@ -4,6 +4,7 @@ import type { Role } from "../domain/roles.ts";
 import { badRequest, notFound } from "../http/errors.ts";
 import { requireMembership } from "./access.ts";
 import { deleteTeamGraph } from "./cascade.ts";
+import { seedEventTypes } from "./eventTypes.ts";
 
 function inviteCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -41,6 +42,7 @@ export function createTeam(ctx: AppContext, userId: string, name: string) {
         `INSERT INTO seasons (id, team_id, name, starts_on, ends_on, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(seasonId, teamId, `${year} Season`, `${year}-01-01`, `${year}-12-31`, now);
+    seedEventTypes(ctx.db, teamId, now);
     return getTeam(ctx, teamId);
   });
 }

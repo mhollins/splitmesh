@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type LiveAthlete, type LiveState } from "../api";
+import { downloadResults } from "../exportResults";
 import { formatDelta, formatMs, formatPace, formatPrGain, GENDER_LABELS, GRADE_LABELS, raceClockMs } from "../format";
 
 export function LiveEventPage() {
@@ -304,6 +305,23 @@ export function LiveEventPage() {
           PR
         </button>
       </div>
+      {finished && (
+        <div className="export">
+          <Link className="button" to={`/events/${state.event.id}/edit`}>
+            Edit results
+          </Link>
+          <span className="muted">Export</span>
+          <button type="button" onClick={() => downloadResults(state, athletes, "csv")}>
+            CSV
+          </button>
+          <button type="button" onClick={() => downloadResults(state, athletes, "png")}>
+            PNG
+          </button>
+          <button type="button" onClick={() => downloadResults(state, athletes, "pdf")}>
+            PDF
+          </button>
+        </div>
+      )}
 
       {error && <p className="error">{error}</p>}
 

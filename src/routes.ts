@@ -11,6 +11,12 @@ import {
 } from "./services/admin.ts";
 import { createTeam, deleteTeam, joinTeam, listTeamsForUser, requireTeam, updateTeam } from "./services/teams.ts";
 import { addAthlete, deleteAthlete, listAthletes, updateAthlete } from "./services/roster.ts";
+import {
+  createEventType,
+  deleteEventType,
+  listEventTypes,
+  updateEventType,
+} from "./services/eventTypes.ts";
 import { deleteManualRecord, upsertManualRecord } from "./services/records.ts";
 import {
   addEntries,
@@ -29,7 +35,15 @@ import {
   startEvent,
   updateMeet,
 } from "./services/meets.ts";
-import { buildLiveState, getLiveState, listEventLog, recordObservation, retractObservation } from "./services/live.ts";
+import {
+  buildLiveState,
+  correctObservation,
+  getLiveState,
+  listEventLog,
+  promoteObservation,
+  recordObservation,
+  retractObservation,
+} from "./services/live.ts";
 import { requireEventAccess } from "./services/access.ts";
 import { unauthorized } from "./http/errors.ts";
 
@@ -134,6 +148,56 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const userId = uid(request, ctx);
     const { teamId } = request.params as { teamId: string };
     return deleteTeam(ctx, userId, teamId);
+  });
+
+  app.get("/api/teams/:teamId/event-types", async (request) => {
+    const userId = uid(request, ctx);
+    const { teamId } = request.params as { teamId: string };
+    return { eventTypes: listEventTypes(ctx, userId, teamId) };
+  });
+
+  app.post("/api/teams/:teamId/event-types", async (request) => {
+    const userId = uid(request, ctx);
+    const { teamId } = request.params as { teamId: string };
+    const body = request.body as {
+      name?: string;
+      distanceMeters?: number;
+      discipline?: string;
+      splits?: { name: string; distanceMeters: number }[];
+    };
+    return {
+      eventType: createEventType(ctx, userId, teamId, {
+        name: body.name ?? "",
+        distanceMeters: body.distanceMeters ?? 0,
+        discipline: body.discipline ?? "track_running",
+        splits: body.splits ?? [],
+      }),
+    };
+  });
+
+  app.patch("/api/event-types/:eventTypeId", async (request) => {
+    const userId = uid(request, ctx);
+    const { eventTypeId } = request.params as { eventTypeId: string };
+    const body = request.body as {
+      name?: string;
+      distanceMeters?: number;
+      discipline?: string;
+      splits?: { name: string; distanceMeters: number }[];
+    };
+    return {
+      eventType: updateEventType(ctx, userId, eventTypeId, {
+        name: body.name ?? "",
+        distanceMeters: body.distanceMeters ?? 0,
+        discipline: body.discipline ?? "track_running",
+        splits: body.splits ?? [],
+      }),
+    };
+  });
+
+  app.delete("/api/event-types/:eventTypeId", async (request) => {
+    const userId = uid(request, ctx);
+    const { eventTypeId } = request.params as { eventTypeId: string };
+    return deleteEventType(ctx, userId, eventTypeId);
   });
 
   app.get("/api/teams/:teamId/athletes", async (request) => {
@@ -242,14 +306,16 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const { meetId } = request.params as { meetId: string };
     const body = request.body as {
       name?: string;
+      eventTypeId?: string;
       discipline?: string;
       distanceMeters?: number;
       timingPoints?: { name: string; distanceMeters: number }[];
     };
     const event = createEvent(ctx, userId, meetId, {
-      name: body.name ?? "",
+      name: body.name,
+      eventTypeId: body.eventTypeId,
       discipline: body.discipline,
-      distanceMeters: body.distanceMeters ?? 0,
+      distanceMeters: body.distanceMeters,
       timingPoints: body.timingPoints,
     });
     return { event };
@@ -338,12 +404,14 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
       timingPointId?: string;
       idempotencyKey?: string;
       clientObservedAt?: number;
+      elapsedMs?: number;
     };
     const result = recordObservation(ctx, userId, eventId, {
       athleteId: body.athleteId ?? "",
       timingPointId: body.timingPointId ?? "",
       idempotencyKey: body.idempotencyKey ?? "",
       clientObservedAt: body.clientObservedAt,
+      elapsedMs: body.elapsedMs,
     });
     return {
       observation: {
@@ -354,6 +422,34 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
         observedAt: result.observation.observed_at,
         conflictsWithId: result.observation.conflicts_with_id,
         duplicate: result.duplicate,
+      },
+      seq: result.seq,
+    };
+  });
+
+  app.patch("/api/observations/:observationId", async (request) => {
+    const userId = uid(request, ctx);
+    const { observationId } = request.params as { observationId: string };
+    const body = request.body as { elapsedMs?: number };
+    const result = correctObservation(ctx, userId, observationId, body.elapsedMs ?? -1);
+    return {
+      observation: {
+        id: result.observation.id,
+        role: result.observation.role,
+        observedAt: result.observation.observed_at,
+      },
+      seq: result.seq,
+    };
+  });
+
+  app.post("/api/observations/:observationId/promote", async (request) => {
+    const userId = uid(request, ctx);
+    const { observationId } = request.params as { observationId: string };
+    const result = promoteObservation(ctx, userId, observationId);
+    return {
+      observation: {
+        id: result.observation.id,
+        role: result.observation.role,
       },
       seq: result.seq,
     };

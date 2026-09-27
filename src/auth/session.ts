@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { unauthorized } from "../http/errors.ts";
 
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
+export const SESSION_TTL_MS = 1000 * 60 * 60 * 6;
 
 export type SessionPayload = { userId: string; exp: number };
 

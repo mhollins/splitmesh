@@ -132,6 +132,9 @@ export function HomePage() {
         <Link className="button" to="/athletes">
           Athletes
         </Link>
+        <Link className="button" to="/event-types">
+          Event types
+        </Link>
         {canManageTeam && (
           <Link className="button" to="/team">
             Edit team

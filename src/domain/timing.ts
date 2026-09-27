@@ -103,6 +103,12 @@ export function projectedFinishMs(
   return Math.round(currentElapsedMs * (totalDistanceMeters / distanceCoveredMeters));
 }
 
+export function formatPrGain(improvementMs: number | null, isNew: boolean): string {
+  if (!isNew) return "";
+  if (improvementMs == null || improvementMs <= 0) return "PR";
+  return `PR −${formatMs(improvementMs)}`;
+}
+
 export function formatMs(ms: number): string {
   const safe = Math.max(0, Math.round(ms));
   const tenths = Math.floor((safe % 1000) / 100);
@@ -142,6 +148,12 @@ export function formatPace(secPerUnit: number): string {
 export function defaultTimingPoints(
   distanceMeters: number,
 ): { name: string; distanceMeters: number }[] {
+  if (distanceMeters === 3200) {
+    return [
+      { name: "1 Mile", distanceMeters: 1609 },
+      { name: "Finish", distanceMeters },
+    ];
+  }
   if (distanceMeters >= 5000) {
     const points = [
       { name: "Mile 1", distanceMeters: 1609 },

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Athlete, type EventDetail, type MeetDetail } from "../api";
+import { api, type Athlete, type EventDetail, type EventType, type MeetDetail } from "../api";
 import {
   GENDER_LABELS,
   GENDERS,
@@ -18,8 +18,9 @@ export function MeetPage() {
   const navigate = useNavigate();
   const [meet, setMeet] = useState<MeetDetail | null>(null);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
-  const [eventName, setEventName] = useState("Varsity 5K");
-  const [distance, setDistance] = useState("5000");
+  const [eventName, setEventName] = useState("");
+  const [eventTypes, setEventTypes] = useState<EventType[]>([]);
+  const [eventTypeId, setEventTypeId] = useState("");
   const [meetName, setMeetName] = useState("");
   const [meetDate, setMeetDate] = useState("");
   const [meetLocation, setMeetLocation] = useState("");
@@ -39,6 +40,9 @@ export function MeetPage() {
     setMeetLocation(detail.location ?? "");
     const roster = await api.athletes(detail.teamId);
     setAthletes(roster.athletes);
+    const types = await api.eventTypes(detail.teamId);
+    setEventTypes(types.eventTypes);
+    setEventTypeId((current) => current || types.eventTypes[0]?.id || "");
   }
 
   useEffect(() => {
@@ -51,8 +55,8 @@ export function MeetPage() {
     setError(null);
     try {
       const created = await api.createEvent(meet.id, {
-        name: eventName,
-        distanceMeters: Number(distance),
+        name: eventName.trim() || undefined,
+        eventTypeId,
       });
       const ids = athletes.map((a) => a.id);
       if (ids.length) {
@@ -368,15 +372,25 @@ export function MeetPage() {
       <form className="card" onSubmit={onCreateEvent}>
         <h2>New running event</h2>
         <label>
-          Name
-          <input value={eventName} onChange={(e) => setEventName(e.target.value)} required />
+          Event type
+          <select value={eventTypeId} onChange={(e) => setEventTypeId(e.target.value)} required>
+            {eventTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name} ({type.distanceMeters}m · {type.splits.map((split) => split.name).join(", ")})
+              </option>
+            ))}
+          </select>
         </label>
         <label>
-          Distance (meters)
-          <input value={distance} onChange={(e) => setDistance(e.target.value)} required />
+          Heat / name (optional)
+          <input value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="Varsity" />
         </label>
-        <p className="muted">Each athlete’s target will be their PR for this distance, if they have one.</p>
-        <button className="primary">Create event and enter roster</button>
+        <p className="muted">
+          Splits come from the event type. Edit them under Event types. Targets use each athlete’s PR.
+        </p>
+        <button className="primary" disabled={!eventTypeId}>
+          Create event and enter roster
+        </button>
       </form>
     </main>
   );

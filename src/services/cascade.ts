@@ -73,6 +73,10 @@ export function deleteMeetGraph(db: Db, meetId: string): void {
 
 export function deleteTeamGraph(db: Db, teamId: string): void {
   deleteEvents(db, eventIdsForTeam(db, teamId));
+  db.prepare(
+    `DELETE FROM event_type_splits WHERE event_type_id IN (SELECT id FROM event_types WHERE team_id = ?)`,
+  ).run(teamId);
+  db.prepare(`DELETE FROM event_types WHERE team_id = ?`).run(teamId);
   db.prepare(`DELETE FROM meets WHERE team_id = ?`).run(teamId);
   db.prepare(`DELETE FROM athletes WHERE team_id = ?`).run(teamId);
   db.prepare(`DELETE FROM seasons WHERE team_id = ?`).run(teamId);

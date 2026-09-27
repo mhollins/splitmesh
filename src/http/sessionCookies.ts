@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { COOKIE_NAME, type AppContext } from "../appContext.ts";
-import { readSession, signSession } from "../auth/session.ts";
+import { readSession, SESSION_TTL_MS, signSession } from "../auth/session.ts";
 import { unauthorized } from "./errors.ts";
 
 export function requireUser(request: FastifyRequest, ctx: AppContext): string {
@@ -16,5 +16,6 @@ export function setSessionCookie(reply: FastifyReply, ctx: AppContext, userId: s
     httpOnly: true,
     sameSite: "lax",
     secure: Boolean(ctx.cookieSecure),
+    maxAge: Math.floor(SESSION_TTL_MS / 1000),
   });
 }

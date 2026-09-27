@@ -51,6 +51,25 @@ export const api = {
     request<{ team: Team }>(`/api/teams/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteTeam: (id: string) =>
     request<{ ok: boolean }>(`/api/teams/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
+  eventTypes: (teamId: string) => request<{ eventTypes: EventType[] }>(`/api/teams/${teamId}/event-types`),
+  createEventType: (
+    teamId: string,
+    body: { name: string; distanceMeters: number; discipline: string; splits: { name: string; distanceMeters: number }[] },
+  ) =>
+    request<{ eventType: EventType }>(`/api/teams/${teamId}/event-types`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateEventType: (
+    id: string,
+    body: { name: string; distanceMeters: number; discipline: string; splits: { name: string; distanceMeters: number }[] },
+  ) =>
+    request<{ eventType: EventType }>(`/api/event-types/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteEventType: (id: string) =>
+    request<{ ok: boolean }>(`/api/event-types/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
   athletes: (teamId: string) => request<{ athletes: Athlete[] }>(`/api/teams/${teamId}/athletes`),
   addAthlete: (
     teamId: string,
@@ -87,7 +106,10 @@ export const api = {
     request<{ meet: MeetDetail }>(`/api/meets/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteMeet: (id: string) =>
     request<{ ok: boolean }>(`/api/meets/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
-  createEvent: (meetId: string, body: { name: string; distanceMeters: number; discipline?: string }) =>
+  createEvent: (
+    meetId: string,
+    body: { name?: string; eventTypeId?: string; distanceMeters?: number; discipline?: string },
+  ) =>
     request<{ event: EventDetail }>(`/api/meets/${meetId}/events`, {
       method: "POST",
       body: JSON.stringify(body),
@@ -121,8 +143,21 @@ export const api = {
   state: (eventId: string) => request<{ state: LiveState }>(`/api/events/${eventId}/state`),
   record: (
     eventId: string,
-    body: { athleteId: string; timingPointId: string; idempotencyKey: string; clientObservedAt?: number },
+    body: {
+      athleteId: string;
+      timingPointId: string;
+      idempotencyKey: string;
+      clientObservedAt?: number;
+      elapsedMs?: number;
+    },
   ) => request(`/api/events/${eventId}/observations`, { method: "POST", body: JSON.stringify(body) }),
+  correctObservation: (observationId: string, elapsedMs: number) =>
+    request(`/api/observations/${observationId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ elapsedMs }),
+    }),
+  promoteObservation: (observationId: string) =>
+    request(`/api/observations/${observationId}/promote`, { method: "POST", body: JSON.stringify({}) }),
   retract: (observationId: string) =>
     request(`/api/observations/${observationId}/retract`, { method: "POST", body: JSON.stringify({}) }),
 };
@@ -133,6 +168,14 @@ export type AdminUser = User & {
   teams: { teamId: string; teamName: string; role: string }[];
 };
 export type TeamSummary = { id: string; name: string; inviteCode: string; role: string };
+export type EventType = {
+  id: string;
+  teamId: string;
+  name: string;
+  distanceMeters: number;
+  discipline: string;
+  splits: { id: string; name: string; distanceMeters: number; sortOrder: number }[];
+};
 export type Team = TeamSummary & {
   members: { id: string; email: string; displayName: string; role: string }[];
   currentSeason: { id: string; name: string } | null;
@@ -233,6 +276,11 @@ export type LiveAthlete = {
       paceSecPerMile: number | null;
       vsTargetMs: number | null;
     }[];
-    conflicts: { observationId: string; timingPointId: string; timingPointName: string }[];
+    conflicts: {
+      observationId: string;
+      timingPointId: string;
+      timingPointName: string;
+      elapsedMs: number;
+    }[];
   };
 };

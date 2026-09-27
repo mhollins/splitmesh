@@ -74,6 +74,14 @@ describe("default timing points", () => {
     expect(points.map((p) => p.name)).toEqual(["Mile 1", "Mile 2", "Finish"]);
     expect(points.at(-1)?.distanceMeters).toBe(5000);
   });
+
+  it("uses 1 Mile and finish for 3200m", () => {
+    const points = defaultTimingPoints(3200);
+    expect(points).toEqual([
+      { name: "1 Mile", distanceMeters: 1609 },
+      { name: "Finish", distanceMeters: 3200 },
+    ]);
+  });
 });
 
 describe("running performance summary", () => {

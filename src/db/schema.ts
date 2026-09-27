@@ -60,9 +60,28 @@ CREATE TABLE IF NOT EXISTS meets (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS event_types (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL REFERENCES teams(id),
+  name TEXT NOT NULL,
+  distance_meters INTEGER NOT NULL,
+  discipline TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE (team_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS event_type_splits (
+  id TEXT PRIMARY KEY,
+  event_type_id TEXT NOT NULL REFERENCES event_types(id),
+  name TEXT NOT NULL,
+  distance_meters INTEGER NOT NULL,
+  sort_order INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   meet_id TEXT NOT NULL REFERENCES meets(id),
+  event_type_id TEXT REFERENCES event_types(id),
   name TEXT NOT NULL,
   category TEXT NOT NULL,
   discipline TEXT NOT NULL,

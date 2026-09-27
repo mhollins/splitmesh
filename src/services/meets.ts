@@ -167,9 +167,10 @@ export function createEvent(
   userId: string,
   meetId: string,
   input: {
-    name: string;
+    name?: string;
+    eventTypeId?: string;
     discipline?: string;
-    distanceMeters: number;
+    distanceMeters?: number;
     timingPoints?: { name: string; distanceMeters: number }[];
   },
 ) {
@@ -178,35 +179,57 @@ export function createEvent(
     .get(meetId) as { id: string; team_id: string } | undefined;
   if (!meet) throw notFound("Meet not found");
   requireMembership(ctx, userId, meet.team_id, "coach");
-  const name = input.name.trim();
+  let eventTypeId = input.eventTypeId ?? null;
+  let name = input.name?.trim() ?? "";
+  let distanceMeters = input.distanceMeters;
+  let discipline = (input.discipline ?? (distanceMeters ? defaultDisciplineForDistance(distanceMeters) : "track_running")) as Discipline;
+  let points = input.timingPoints;
+  if (eventTypeId) {
+    const type = ctx.db
+      .prepare(
+        `SELECT id, name, distance_meters AS distanceMeters, discipline FROM event_types WHERE id = ? AND team_id = ?`,
+      )
+      .get(eventTypeId, meet.team_id) as
+      | { id: string; name: string; distanceMeters: number; discipline: string }
+      | undefined;
+    if (!type) throw badRequest("Event type not found on this team");
+    name = name || type.name;
+    distanceMeters = type.distanceMeters;
+    discipline = type.discipline as Discipline;
+    points = (
+      ctx.db
+        .prepare(
+          `SELECT name, distance_meters AS distanceMeters FROM event_type_splits WHERE event_type_id = ? ORDER BY sort_order`,
+        )
+        .all(eventTypeId) as { name: string; distanceMeters: number }[]
+    );
+  }
   if (!name) throw badRequest("Event name is required");
-  if (!Number.isInteger(input.distanceMeters) || input.distanceMeters <= 0) {
+  if (!Number.isInteger(distanceMeters) || (distanceMeters ?? 0) <= 0) {
     throw badRequest("distanceMeters must be a positive integer");
   }
-  const discipline = (input.discipline ?? defaultDisciplineForDistance(input.distanceMeters)) as Discipline;
   if (!isDiscipline(discipline)) throw badRequest("Unknown discipline");
   const category = categoryForDiscipline(discipline);
   if (category !== "running") {
     throw badRequest("This slice only creates running events");
   }
-  const points = input.timingPoints?.length
-    ? input.timingPoints
-    : defaultTimingPoints(input.distanceMeters);
+  const resolvedPoints = points?.length ? points : defaultTimingPoints(distanceMeters!);
 
   return withTx(ctx.db, () => {
     const eventId = newId();
     ctx.db
       .prepare(
-        `INSERT INTO events (id, meet_id, name, category, discipline, distance_meters, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO events (id, meet_id, event_type_id, name, category, discipline, distance_meters, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         eventId,
         meetId,
+        eventTypeId,
         name,
         category,
         discipline,
-        input.distanceMeters,
+        distanceMeters,
         "upcoming",
         ctx.clock.now(),
       );
@@ -214,8 +237,8 @@ export function createEvent(
       `INSERT INTO timing_points (id, event_id, name, distance_meters, sort_order, is_finish)
        VALUES (?, ?, ?, ?, ?, ?)`,
     );
-    points.forEach((point, index) => {
-      const isFinish = index === points.length - 1;
+    resolvedPoints.forEach((point, index) => {
+      const isFinish = index === resolvedPoints.length - 1;
       insertPoint.run(
         newId(),
         eventId,

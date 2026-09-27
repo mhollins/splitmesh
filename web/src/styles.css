@@ -143,6 +143,19 @@ label { display: grid; gap: 0.35rem; font-size: 0.9rem; }
 .point.active { background: var(--accent); color: #14200a; }
 .search { width: 100%; margin: 0.5rem 0 0.45rem; min-height: 3rem; }
 .sorts { margin-bottom: 0.75rem; }
+.export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin: -0.25rem 0 0.85rem;
+}
+.result-edit-point {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--line);
+}
 .athlete {
   position: relative;
   width: 100%;

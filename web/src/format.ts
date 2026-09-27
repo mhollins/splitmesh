@@ -1,4 +1,4 @@
-import { formatMs, formatPace, parseTimeInput, raceClockMs } from "../../src/domain/timing";
+import { formatMs, formatPace, formatPrGain, parseTimeInput, raceClockMs } from "../../src/domain/timing";
 import {
   GENDER_LABELS,
   GENDERS,
@@ -10,6 +10,7 @@ import {
 export {
   formatMs,
   formatPace,
+  formatPrGain,
   parseTimeInput,
   raceClockMs,
   GENDERS,
@@ -18,12 +19,6 @@ export {
   GRADE_LABELS,
   selectRosterByFilters,
 };
-
-export function formatPrGain(improvementMs: number | null, isNew: boolean): string {
-  if (!isNew) return "";
-  if (improvementMs == null || improvementMs <= 0) return "PR";
-  return `PR −${formatMs(improvementMs)}`;
-}
 
 export function formatDelta(ms: number | null): string {
   if (ms == null) return "";
