@@ -126,9 +126,16 @@ label select { width: 100%; }
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   width: 100%;
-  min-height: 2.8rem;
+  min-height: 4.4rem;
 }
 .clock-actions-start { grid-column: 2; }
+.timer-start {
+  font-size: 2rem;
+  font-weight: 800;
+  padding: 1.1rem 2rem;
+  min-width: 8.5rem;
+  min-height: 4.2rem;
+}
 .clock-actions-reset { grid-column: 3; justify-self: start; padding-left: 0.5rem; }
 .finish-bar {
   margin-top: 1.5rem;

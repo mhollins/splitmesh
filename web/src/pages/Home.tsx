@@ -17,7 +17,13 @@ export function HomePage() {
   const [teamName, setTeamName] = useState("");
   const [invite, setInvite] = useState("");
   const [meetName, setMeetName] = useState("");
-  const [meetDate, setMeetDate] = useState("2026-09-12");
+  const [meetDate, setMeetDate] = useState(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  });
   const [error, setError] = useState<string | null>(null);
 
   async function load() {

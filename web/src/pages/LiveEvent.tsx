@@ -256,11 +256,11 @@ export function LiveEventPage() {
             <div className="clock-actions">
               <div className="clock-actions-start">
                 {running ? (
-                  <button type="button" className="primary" onClick={() => void pauseRace()}>
+                  <button type="button" className="primary timer-start" onClick={() => void pauseRace()}>
                     Pause
                   </button>
                 ) : (
-                  <button type="button" className="primary" onClick={() => void startRace()}>
+                  <button type="button" className="primary timer-start" onClick={() => void startRace()}>
                     Start
                   </button>
                 )}
