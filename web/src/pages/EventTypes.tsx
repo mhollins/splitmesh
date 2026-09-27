@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type EventType, type Team } from "../api";
+import { rememberTeamId, selectedTeamId } from "../teamSelection";
 
 type SplitDraft = { name: string; distanceMeters: string };
 
@@ -17,11 +18,13 @@ export function EventTypesPage() {
 
   async function load() {
     const me = await api.me();
-    if (!me.teams.length) {
+    const teamId = selectedTeamId(me.teams);
+    if (!teamId) {
       navigate("/app");
       return;
     }
-    const detail = await api.team(me.teams[0].id);
+    rememberTeamId(teamId);
+    const detail = await api.team(teamId);
     setTeam(detail.team);
     const list = await api.eventTypes(detail.team.id);
     setTypes(list.eventTypes);

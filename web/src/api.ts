@@ -28,7 +28,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  me: () => request<{ user: User; teams: TeamSummary[] }>("/api/me"),
+  me: () => request<{ user: User; teams: TeamSummary[]; schools: SchoolSummary[] }>("/api/me"),
   register: (body: { email: string; password: string; displayName: string }) =>
     request<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
   login: (body: { email: string; password: string }) =>
@@ -42,8 +42,46 @@ export const api = {
     request<{ team: Team }>(`/api/admin/teams/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   adminDeleteTeam: (id: string) =>
     request<{ ok: boolean }>(`/api/admin/teams/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
-  createTeam: (name: string) =>
-    request<{ team: Team }>("/api/teams", { method: "POST", body: JSON.stringify({ name }) }),
+  createTeam: (name: string, schoolName?: string) =>
+    request<{ team: Team }>("/api/teams", { method: "POST", body: JSON.stringify({ name, schoolName }) }),
+  school: (id: string) => request<{ school: SchoolDetail }>(`/api/schools/${id}`),
+  updateSchool: (id: string, name: string) =>
+    request<{ school: SchoolDetail }>(`/api/schools/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  deleteSchool: (id: string) =>
+    request<{ ok: boolean }>(`/api/schools/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
+  createSchoolTeam: (schoolId: string, name: string) =>
+    request<{ team: Team }>(`/api/schools/${schoolId}/teams`, { method: "POST", body: JSON.stringify({ name }) }),
+  addSchoolAdmin: (schoolId: string, email: string) =>
+    request<{ school: SchoolDetail }>(`/api/schools/${schoolId}/admins`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  removeSchoolAdmin: (schoolId: string, userId: string) =>
+    request<{ school: SchoolDetail }>(`/api/schools/${schoolId}/admins/${userId}`, {
+      method: "DELETE",
+      body: JSON.stringify({}),
+    }),
+  setTeamMember: (teamId: string, body: { email: string; role: string }) =>
+    request<{ team: Team }>(`/api/teams/${teamId}/members`, { method: "PUT", body: JSON.stringify(body) }),
+  removeTeamMember: (teamId: string, userId: string) =>
+    request<{ team: Team }>(`/api/teams/${teamId}/members/${userId}`, { method: "DELETE", body: JSON.stringify({}) }),
+  schoolAthletes: (schoolId: string) => request<{ athletes: Athlete[] }>(`/api/schools/${schoolId}/athletes`),
+  addSchoolAthlete: (
+    schoolId: string,
+    body: { firstName: string; lastName: string; gender: string; gradeLevel: string; graduationYear?: number },
+  ) =>
+    request<{ athlete: Athlete }>(`/api/schools/${schoolId}/athletes`, { method: "POST", body: JSON.stringify(body) }),
+  assignAthlete: (schoolId: string, athleteId: string, teamId: string) =>
+    request<{ athlete: Athlete }>(`/api/schools/${schoolId}/athletes/${athleteId}/teams`, {
+      method: "POST",
+      body: JSON.stringify({ teamId }),
+    }),
+  unassignAthlete: (schoolId: string, athleteId: string, teamId: string) =>
+    request<{ athlete: Athlete }>(`/api/schools/${schoolId}/athletes/${athleteId}/teams/${teamId}`, {
+      method: "DELETE",
+      body: JSON.stringify({}),
+    }),
+  schoolRecords: (schoolId: string) => request<{ records: SchoolRecord[] }>(`/api/schools/${schoolId}/records`),
   joinTeam: (inviteCode: string) =>
     request<{ team: Team }>("/api/teams/join", { method: "POST", body: JSON.stringify({ inviteCode }) }),
   team: (id: string) => request<{ team: Team }>(`/api/teams/${id}`),
@@ -98,7 +136,11 @@ export const api = {
       method: "DELETE",
       body: JSON.stringify({}),
     }),
-  meets: (teamId: string) => request<{ meets: Meet[] }>(`/api/teams/${teamId}/meets`),
+  seasons: (teamId: string) => request<{ seasons: Season[] }>(`/api/teams/${teamId}/seasons`),
+  meets: (teamId: string, seasonId?: string) =>
+    request<{ meets: Meet[] }>(
+      `/api/teams/${teamId}/meets${seasonId ? `?seasonId=${encodeURIComponent(seasonId)}` : ""}`,
+    ),
   createMeet: (teamId: string, body: { name: string; startsOn: string; location?: string }) =>
     request<{ meet: Meet }>(`/api/teams/${teamId}/meets`, { method: "POST", body: JSON.stringify(body) }),
   meet: (id: string) => request<{ meet: MeetDetail }>(`/api/meets/${id}`),
@@ -167,7 +209,39 @@ export type AdminUser = User & {
   createdAt: number;
   teams: { teamId: string; teamName: string; role: string }[];
 };
-export type TeamSummary = { id: string; name: string; inviteCode: string; role: string };
+export type TeamSummary = {
+  id: string;
+  name: string;
+  inviteCode: string;
+  role: string;
+  schoolId: string;
+  schoolName: string;
+};
+export type SchoolSummary = { id: string; name: string; role: string };
+export type SchoolDetail = {
+  id: string;
+  name: string;
+  admins: { id: string; email: string; displayName: string }[];
+  teams: Team[];
+};
+export type SchoolRecord = {
+  id: string;
+  gender: string;
+  discipline: string;
+  distanceMeters: number;
+  markType: string;
+  markValueMs: number;
+  athleteId: string;
+  firstName: string;
+  lastName: string;
+  recordedAt: number;
+  previousMarkValueMs: number | null;
+  performanceId?: string;
+  teamId?: string;
+  teamName?: string;
+  meetName?: string;
+  meetStartsOn?: string;
+};
 export type EventType = {
   id: string;
   teamId: string;
@@ -178,7 +252,15 @@ export type EventType = {
 };
 export type Team = TeamSummary & {
   members: { id: string; email: string; displayName: string; role: string }[];
-  currentSeason: { id: string; name: string } | null;
+  currentSeason: { id: string; name: string; startsOn: string; endsOn: string } | null;
+  role?: string;
+};
+export type Season = {
+  id: string;
+  name: string;
+  startsOn: string;
+  endsOn: string;
+  isCurrent: boolean;
 };
 export type AthleteRecordMark = {
   id: string;
@@ -190,16 +272,21 @@ export type AthleteRecordMark = {
 };
 export type Athlete = {
   id: string;
+  schoolId?: string;
   firstName: string;
   lastName: string;
   gender: string;
   gradeLevel: string;
   graduationYear: number | null;
+  teams?: { id: string; name: string }[];
   records?: AthleteRecordMark[];
 };
 export type Meet = { id: string; name: string; startsOn: string; location: string | null; status: string };
 export type MeetDetail = Meet & {
   teamId: string;
+  seasonId: string;
+  seasonName: string;
+  isCurrentSeason: boolean;
   events: {
     id: string;
     name: string;
@@ -258,6 +345,10 @@ export type LiveAthlete = {
   previousPersonalRecordMs: number | null;
   prImprovementMs: number | null;
   isNewPersonalRecord: boolean;
+  schoolRecordMs: number | null;
+  previousSchoolRecordMs: number | null;
+  srImprovementMs: number | null;
+  isNewSchoolRecord: boolean;
   seasonBestMs: number | null;
   status: string;
   summary: {

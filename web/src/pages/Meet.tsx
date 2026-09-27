@@ -214,6 +214,7 @@ export function MeetPage() {
       <h1>{meet.name}</h1>
       <p className="muted">
         {meet.startsOn}
+        {meet.seasonName ? ` · Season ${meet.seasonName}` : ""}
         {meet.location ? ` · ${meet.location}` : ""}
       </p>
       {error && <p className="error">{error}</p>}
@@ -369,6 +370,7 @@ export function MeetPage() {
         </form>
       )}
 
+      {meet.isCurrentSeason ? (
       <form className="card" onSubmit={onCreateEvent}>
         <h2>New running event</h2>
         <label>
@@ -392,6 +394,11 @@ export function MeetPage() {
           Create event and enter roster
         </button>
       </form>
+      ) : (
+        <p className="muted">
+          This meet is from season {meet.seasonName}. New events can only be added in the current season.
+        </p>
+      )}
     </main>
   );
 }

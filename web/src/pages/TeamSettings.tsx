@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type Team, type User } from "../api";
+import { rememberTeamId, selectedTeamId } from "../teamSelection";
 
 export function TeamSettingsPage() {
   const navigate = useNavigate();
@@ -13,11 +14,13 @@ export function TeamSettingsPage() {
     try {
       const me = await api.me();
       setUser(me.user);
-      if (!me.teams.length) {
+      const teamId = selectedTeamId(me.teams);
+      if (!teamId) {
         navigate("/app");
         return;
       }
-      const detail = await api.team(me.teams[0].id);
+      rememberTeamId(teamId);
+      const detail = await api.team(teamId);
       setTeam(detail.team);
       setRename(detail.team.name);
     } catch {
@@ -43,7 +46,12 @@ export function TeamSettingsPage() {
 
   async function onDeleteTeam() {
     if (!team) return;
-    if (!confirm(`Delete ${team.name} and all of its athletes, meets, and results?`)) return;
+    if (
+      !confirm(
+        `Delete ${team.name}? Its meets and results are removed. Athletes stay on the school, and school records are recomputed.`,
+      )
+    )
+      return;
     setError(null);
     try {
       await api.deleteTeam(team.id);

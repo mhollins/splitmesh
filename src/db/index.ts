@@ -3,6 +3,8 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { initialAdminEmail } from "../config.ts";
 import { SCHEMA_SQL } from "./schema.ts";
+import { migrateSchoolYearSeasons } from "./schoolYears.ts";
+import { migrateSchools } from "./schools.ts";
 
 export type Db = Database.Database;
 
@@ -22,6 +24,8 @@ export function openDb(dbPath: string): Db {
   migrateEvents(db);
   migrateEventTypeId(db);
   migrate3200Splits(db);
+  migrateSchoolYearSeasons(db);
+  migrateSchools(db);
   return db;
 }
 

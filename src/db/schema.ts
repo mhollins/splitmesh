@@ -12,8 +12,25 @@ CREATE TABLE IF NOT EXISTS users (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS schools (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_by_user_id TEXT NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS school_memberships (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  role TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE (school_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS teams (
   id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id),
   name TEXT NOT NULL,
   invite_code TEXT NOT NULL UNIQUE,
   created_by_user_id TEXT NOT NULL REFERENCES users(id),
@@ -40,13 +57,21 @@ CREATE TABLE IF NOT EXISTS seasons (
 
 CREATE TABLE IF NOT EXISTS athletes (
   id TEXT PRIMARY KEY,
-  team_id TEXT NOT NULL REFERENCES teams(id),
+  school_id TEXT NOT NULL REFERENCES schools(id),
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   gender TEXT NOT NULL,
   grade_level TEXT NOT NULL,
   graduation_year INTEGER,
   created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS athlete_team_assignments (
+  id TEXT PRIMARY KEY,
+  athlete_id TEXT NOT NULL REFERENCES athletes(id),
+  team_id TEXT NOT NULL REFERENCES teams(id),
+  created_at INTEGER NOT NULL,
+  UNIQUE (athlete_id, team_id)
 );
 
 CREATE TABLE IF NOT EXISTS meets (
@@ -179,8 +204,23 @@ CREATE TABLE IF NOT EXISTS season_bests (
   UNIQUE (athlete_id, season_id, discipline, distance_meters, mark_type)
 );
 
+CREATE TABLE IF NOT EXISTS school_records (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id),
+  gender TEXT NOT NULL,
+  discipline TEXT NOT NULL,
+  distance_meters INTEGER NOT NULL,
+  mark_type TEXT NOT NULL,
+  mark_value INTEGER NOT NULL,
+  athlete_id TEXT NOT NULL REFERENCES athletes(id),
+  performance_id TEXT NOT NULL REFERENCES performances(id),
+  team_id TEXT NOT NULL REFERENCES teams(id),
+  recorded_at INTEGER NOT NULL,
+  previous_mark_value INTEGER,
+  UNIQUE (school_id, gender, discipline, distance_meters, mark_type)
+);
+
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON team_memberships(user_id);
-CREATE INDEX IF NOT EXISTS idx_athletes_team ON athletes(team_id);
 CREATE INDEX IF NOT EXISTS idx_meets_team ON meets(team_id);
 CREATE INDEX IF NOT EXISTS idx_events_meet ON events(meet_id);
 CREATE INDEX IF NOT EXISTS idx_entries_event ON event_entries(event_id);

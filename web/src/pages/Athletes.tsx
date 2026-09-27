@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type Athlete, type Team, type User } from "../api";
+import { api, type Athlete, type SchoolSummary, type Team, type TeamSummary, type User } from "../api";
+import { rememberTeamId, selectedTeamId } from "../teamSelection";
 import {
   GENDER_LABELS,
   GENDERS,
@@ -15,6 +16,8 @@ import {
 export function AthletesPage() {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
+  const [teams, setTeams] = useState<TeamSummary[]>([]);
+  const [schools, setSchools] = useState<SchoolSummary[]>([]);
   const [team, setTeam] = useState<Team | null>(null);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [firstName, setFirstName] = useState("");
@@ -35,13 +38,17 @@ export function AthletesPage() {
     try {
       const me = await api.me();
       setUser(me.user);
-      if (!me.teams.length) {
+      setTeams(me.teams);
+      setSchools(me.schools);
+      const teamId = selectedTeamId(me.teams);
+      if (!teamId) {
         navigate("/app");
         return;
       }
-      const detail = await api.team(me.teams[0].id);
+      rememberTeamId(teamId);
+      const detail = await api.team(teamId);
       setTeam(detail.team);
-      const roster = await api.athletes(detail.team.id);
+      const roster = await api.schoolAthletes(detail.team.schoolId);
       setAthletes(roster.athletes);
     } catch {
       navigate("/");
@@ -119,8 +126,32 @@ export function AthletesPage() {
     }
   }
 
+  async function onUnassign(athlete: Athlete) {
+    if (!team) return;
+    if (!confirm(`Remove ${athlete.firstName} ${athlete.lastName} from ${team.name}? Their results stay.`)) return;
+    setError(null);
+    try {
+      await api.unassignAthlete(team.schoolId, athlete.id, team.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove athlete");
+    }
+  }
+
+  async function onToggleTeam(athlete: Athlete, teamId: string, assigned: boolean) {
+    if (!team) return;
+    setError(null);
+    try {
+      if (assigned) await api.unassignAthlete(team.schoolId, athlete.id, teamId);
+      else await api.assignAthlete(team.schoolId, athlete.id, teamId);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update teams");
+    }
+  }
+
   async function onDeleteAthlete(athlete: Athlete) {
-    if (!confirm(`Remove ${athlete.firstName} ${athlete.lastName} from the roster?`)) return;
+    if (!confirm(`Delete ${athlete.firstName} ${athlete.lastName} from the school? Their race history will be removed.`)) return;
     setError(null);
     try {
       await api.deleteAthlete(athlete.id);
@@ -134,6 +165,15 @@ export function AthletesPage() {
 
   const role = team.members.find((member) => member.id === user.id)?.role;
   const canManageRoster = role === "owner" || role === "admin" || role === "coach";
+  const schoolTeams = teams.filter((item) => item.schoolId === team.schoolId);
+  const isSchoolAdmin = schools.some((school) => school.id === team.schoolId) || user.isPlatformAdmin;
+  function canEdit(athlete: Athlete) {
+    if (isSchoolAdmin) return true;
+    return (athlete.teams ?? []).some((assigned) => {
+      const membership = teams.find((item) => item.id === assigned.id);
+      return membership && ["owner", "admin", "coach"].includes(membership.role);
+    });
+  }
 
   return (
     <main className="page">
@@ -141,6 +181,7 @@ export function AthletesPage() {
         <Link to="/app">← {team.name}</Link>
       </p>
       <h1>Athletes</h1>
+      <p className="muted">{team.schoolName}</p>
       {error && <p className="error">{error}</p>}
       <section className="card">
         <ul className="plain">
@@ -237,7 +278,25 @@ export function AthletesPage() {
                           .join(" · ")}`}
                     </span>
                   </span>
-                  {canManageRoster && (
+                  <span className="row">
+                    {schoolTeams.map((item) => {
+                      const assigned = (athlete.teams ?? []).some((row) => row.id === item.id);
+                      const canToggle =
+                        isSchoolAdmin || ["owner", "admin", "coach"].includes(teams.find((row) => row.id === item.id)?.role ?? "");
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={assigned ? "primary" : ""}
+                          disabled={!canToggle}
+                          onClick={() => void onToggleTeam(athlete, item.id, assigned)}
+                        >
+                          {item.name}
+                        </button>
+                      );
+                    })}
+                  </span>
+                  {canEdit(athlete) && (
                     <span className="row">
                       <button
                         type="button"
@@ -260,9 +319,16 @@ export function AthletesPage() {
                       >
                         Edit
                       </button>
-                      <button type="button" className="danger" onClick={() => void onDeleteAthlete(athlete)}>
-                        Delete
-                      </button>
+                      {(athlete.teams ?? []).some((row) => row.id === team.id) && canManageRoster && (
+                        <button type="button" onClick={() => void onUnassign(athlete)}>
+                          Remove from {team.name}
+                        </button>
+                      )}
+                      {isSchoolAdmin && (
+                        <button type="button" className="danger" onClick={() => void onDeleteAthlete(athlete)}>
+                          Delete from school
+                        </button>
+                      )}
                     </span>
                   )}
                 </>

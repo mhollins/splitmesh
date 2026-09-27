@@ -2,7 +2,7 @@
 
 The domain is **not** `Athlete → Race → Split`. It is:
 
-`User / Team → Athlete → Season → Meet → Event → EventEntry → Performance`
+`User / School → Team → Athlete assignment → Season → Meet → Event → EventEntry → Performance`
 
 with event-specific result data hanging off `Performance`.
 
@@ -13,9 +13,11 @@ A cross country 5K and a future long jump live in the same meet. Only the perfor
 | Entity | Role |
 | --- | --- |
 | **User** | Authenticated person (coach, assistant, later athlete/viewer). |
-| **Team** | The authorization and roster boundary. Has an invite code. |
-| **TeamMembership** | User ↔ team with role `owner`, `admin`, `coach`, `assistant`, `viewer`. |
-| **Athlete** | Roster person. Not necessarily a user. |
+| **School** | Owns teams, the athlete roster, and the school record book. |
+| **SchoolMembership** | User ↔ school as `school_admin`. Not a live-timing role. |
+| **Team** | A program inside a school. Invite code, seasons, meets, and live timing stay here. |
+| **TeamMembership** | User ↔ team with role `owner`, `admin`, `coach`, `assistant`, `viewer`. A user may coach many teams. |
+| **Athlete** | A person at the school, assigned to zero or more of that school's teams. |
 | **Season** | Container for meets and season-best records. Creating a team creates a current season. |
 | **Meet** | A date/place gathering that contains many events. |
 | **Event** | One contest inside a meet (`category` = `running` \| `field` \| `relay`, plus a `discipline`). |

@@ -7,6 +7,8 @@ import { EditResultsPage } from "./pages/EditResults";
 import { LiveEventPage } from "./pages/LiveEvent";
 import { LoginPage } from "./pages/Login";
 import { MeetPage } from "./pages/Meet";
+import { SchoolAdminPage } from "./pages/SchoolAdmin";
+import { SchoolRecordsPage } from "./pages/SchoolRecords";
 import { TeamSettingsPage } from "./pages/TeamSettings";
 
 export function App() {
@@ -17,6 +19,8 @@ export function App() {
       <Route path="/athletes" element={<AthletesPage />} />
       <Route path="/event-types" element={<EventTypesPage />} />
       <Route path="/team" element={<TeamSettingsPage />} />
+      <Route path="/schools/:schoolId" element={<SchoolAdminPage />} />
+      <Route path="/schools/:schoolId/records" element={<SchoolRecordsPage />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/meets/:meetId" element={<MeetPage />} />
       <Route path="/events/:eventId/live" element={<LiveEventPage />} />

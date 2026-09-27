@@ -1,12 +1,19 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type Meet, type Team, type User } from "../api";
+import { api, type Meet, type SchoolSummary, type Season, type Team, type TeamSummary, type User } from "../api";
+import { rememberTeamId, selectedTeamId } from "../teamSelection";
 
 export function HomePage() {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
+  const [teams, setTeams] = useState<TeamSummary[]>([]);
+  const [schools, setSchools] = useState<SchoolSummary[]>([]);
   const [team, setTeam] = useState<Team | null>(null);
   const [meets, setMeets] = useState<Meet[]>([]);
+  const [pastSeasons, setPastSeasons] = useState<Season[]>([]);
+  const [pastSeasonId, setPastSeasonId] = useState("");
+  const [pastMeets, setPastMeets] = useState<Meet[]>([]);
+  const [schoolName, setSchoolName] = useState("");
   const [teamName, setTeamName] = useState("");
   const [invite, setInvite] = useState("");
   const [meetName, setMeetName] = useState("");
@@ -17,14 +24,29 @@ export function HomePage() {
     try {
       const me = await api.me();
       setUser(me.user);
-      if (!me.teams.length) {
+      setTeams(me.teams);
+      setSchools(me.schools);
+      const teamId = selectedTeamId(me.teams);
+      if (!teamId) {
         setTeam(null);
         return;
       }
-      const detail = await api.team(me.teams[0].id);
+      rememberTeamId(teamId);
+      const detail = await api.team(teamId);
       setTeam(detail.team);
       const meetList = await api.meets(detail.team.id);
       setMeets(meetList.meets);
+      const seasonList = await api.seasons(detail.team.id);
+      const past = seasonList.seasons.filter((season) => !season.isCurrent);
+      setPastSeasons(past);
+      const nextPast = past[0]?.id ?? "";
+      setPastSeasonId(nextPast);
+      if (nextPast) {
+        const pastList = await api.meets(detail.team.id, nextPast);
+        setPastMeets(pastList.meets);
+      } else {
+        setPastMeets([]);
+      }
     } catch {
       navigate("/");
     }
@@ -38,7 +60,8 @@ export function HomePage() {
     event.preventDefault();
     setError(null);
     try {
-      await api.createTeam(teamName);
+      const created = await api.createTeam(teamName || schoolName, schoolName);
+      if (created.team?.id) rememberTeamId(created.team.id);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create team");
@@ -63,6 +86,18 @@ export function HomePage() {
     navigate(`/meets/${created.meet.id}`);
   }
 
+  async function onPastSeason(seasonId: string) {
+    if (!team) return;
+    setPastSeasonId(seasonId);
+    setError(null);
+    try {
+      const pastList = await api.meets(team.id, seasonId);
+      setPastMeets(pastList.meets);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load that season");
+    }
+  }
+
   async function onDeleteMeet(meet: Meet) {
     if (!confirm(`Delete ${meet.name} and its events?`)) return;
     setError(null);
@@ -83,16 +118,37 @@ export function HomePage() {
           <h1>SplitMesh</h1>
           {user.isPlatformAdmin && <Link to="/admin">Admin</Link>}
         </header>
-        <p>Create a team or join with an invite code.</p>
-        {error && <p className="error">{error}</p>}
-        <form className="card" onSubmit={onCreateTeam}>
-          <h2>New team</h2>
-          <label>
-            Team name
-            <input value={teamName} onChange={(e) => setTeamName(e.target.value)} required />
-          </label>
-          <button className="primary">Create team</button>
-        </form>
+        {schools.length === 0 ? (
+          <>
+            <p>Create a school or join a team with an invite code.</p>
+            {error && <p className="error">{error}</p>}
+            <form className="card" onSubmit={onCreateTeam}>
+              <h2>Create a school</h2>
+              <label>
+                School name
+                <input value={schoolName} onChange={(e) => setSchoolName(e.target.value)} required />
+              </label>
+              <label>
+                First team name
+                <input value={teamName} onChange={(e) => setTeamName(e.target.value)} required />
+              </label>
+              <p className="muted">This creates a new school and its first team. You will be the school admin.</p>
+              <button className="primary">Create school</button>
+            </form>
+          </>
+        ) : (
+          <>
+            <p>Open a school you administer, or join a team with an invite code.</p>
+            {error && <p className="error">{error}</p>}
+            <section className="card">
+              {schools.map((school) => (
+                <Link key={school.id} to={`/schools/${school.id}`}>
+                  School admin · {school.name}
+                </Link>
+              ))}
+            </section>
+          </>
+        )}
         <form className="card" onSubmit={onJoin}>
           <h2>Join team</h2>
           <label>
@@ -114,7 +170,29 @@ export function HomePage() {
       <header className="topbar">
         <div>
           <p className="eyebrow">SplitMesh</p>
-          <h1>{team.name}</h1>
+          {teams.length > 1 ? (
+            <label>
+              Team
+              <select
+                value={team.id}
+                onChange={(event) => {
+                  rememberTeamId(event.target.value);
+                  void load();
+                }}
+              >
+                {teams.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <h1>{team.name}</h1>
+          )}
+          {teams.length > 1 && <h1>{team.name}</h1>}
+          {team.currentSeason && <p className="muted">Season {team.currentSeason.name}</p>}
+          <p className="muted">{team.schoolName}</p>
         </div>
         <span className="row">
           {user.isPlatformAdmin && <Link to="/admin">Admin</Link>}
@@ -132,9 +210,17 @@ export function HomePage() {
         <Link className="button" to="/athletes">
           Athletes
         </Link>
+        <Link className="button" to={`/schools/${team.schoolId}/records`}>
+          School records
+        </Link>
         <Link className="button" to="/event-types">
           Event types
         </Link>
+        {schools.map((school) => (
+          <Link key={school.id} className="button" to={`/schools/${school.id}`}>
+            School admin · {school.name}
+          </Link>
+        ))}
         {canManageTeam && (
           <Link className="button" to="/team">
             Edit team
@@ -171,6 +257,39 @@ export function HomePage() {
             </label>
             <button className="primary">Create meet</button>
           </form>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Previous seasons</h2>
+        {pastSeasons.length === 0 ? (
+          <p className="muted">No earlier seasons yet. On June 1 this season rolls forward and its meets stay here.</p>
+        ) : (
+          <>
+            <label>
+              Season
+              <select value={pastSeasonId} onChange={(event) => void onPastSeason(event.target.value)}>
+                {pastSeasons.map((season) => (
+                  <option key={season.id} value={season.id}>
+                    {season.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {pastMeets.length === 0 ? (
+              <p className="muted">No meets in this season.</p>
+            ) : (
+              <ul className="plain">
+                {pastMeets.map((meet) => (
+                  <li key={meet.id}>
+                    <Link to={`/meets/${meet.id}`}>
+                      {meet.name} <span className="muted">{meet.startsOn}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </section>
     </main>

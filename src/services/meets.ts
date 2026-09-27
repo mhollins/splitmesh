@@ -4,9 +4,10 @@ import { defaultTimingPoints } from "../domain/timing.ts";
 import { newId, withTx } from "../db/index.ts";
 import { badRequest, conflict, notFound } from "../http/errors.ts";
 import { requireEventAccess, requireMembership } from "./access.ts";
-import { clearEventTiming, deleteEvents, deleteMeetGraph } from "./cascade.ts";
+import { clearEventTimingAndRecompute, deleteEventsAndRecompute, deleteMeetGraph } from "./cascade.ts";
 import { appendLog } from "./eventLog.ts";
-import { defaultDisciplineForDistance, recomputeTimeRecords } from "./records.ts";
+import { defaultDisciplineForDistance } from "./records.ts";
+import { ensureCurrentSeason, requireTeamSeason } from "./seasons.ts";
 
 function lookupPrMs(
   ctx: AppContext,
@@ -33,11 +34,7 @@ function lookupPrMs(
 }
 
 function currentSeasonId(ctx: AppContext, teamId: string): string {
-  const row = ctx.db
-    .prepare(`SELECT id FROM seasons WHERE team_id = ? ORDER BY created_at DESC LIMIT 1`)
-    .get(teamId) as { id: string } | undefined;
-  if (!row) throw notFound("Team has no season");
-  return row.id;
+  return ensureCurrentSeason(ctx, teamId).id;
 }
 
 export function createMeet(
@@ -61,14 +58,15 @@ export function createMeet(
   return getMeet(ctx, userId, id);
 }
 
-export function listMeets(ctx: AppContext, userId: string, teamId: string) {
+export function listMeets(ctx: AppContext, userId: string, teamId: string, seasonId?: string) {
   requireMembership(ctx, userId, teamId, "viewer");
+  const season = seasonId ? requireTeamSeason(ctx, teamId, seasonId) : ensureCurrentSeason(ctx, teamId);
   return ctx.db
     .prepare(
       `SELECT id, name, starts_on AS startsOn, location, status, season_id AS seasonId
-       FROM meets WHERE team_id = ? ORDER BY starts_on DESC, name`,
+       FROM meets WHERE team_id = ? AND season_id = ? ORDER BY starts_on DESC, name`,
     )
-    .all(teamId);
+    .all(teamId, season.id);
 }
 
 export function getMeet(ctx: AppContext, userId: string, meetId: string) {
@@ -90,6 +88,10 @@ export function getMeet(ctx: AppContext, userId: string, meetId: string) {
     | undefined;
   if (!meet) throw notFound("Meet not found");
   requireMembership(ctx, userId, meet.teamId, "viewer");
+  const current = ensureCurrentSeason(ctx, meet.teamId);
+  const season = ctx.db.prepare(`SELECT name FROM seasons WHERE id = ?`).get(meet.seasonId) as
+    | { name: string }
+    | undefined;
   const events = ctx.db
     .prepare(
       `SELECT e.id, e.name, e.category, e.discipline, e.distance_meters AS distanceMeters, e.status,
@@ -98,7 +100,12 @@ export function getMeet(ctx: AppContext, userId: string, meetId: string) {
        FROM events e WHERE e.meet_id = ? ORDER BY e.created_at`,
     )
     .all(meetId);
-  return { ...meet, events };
+  return {
+    ...meet,
+    seasonName: season?.name ?? current.name,
+    isCurrentSeason: meet.seasonId === current.id,
+    events,
+  };
 }
 
 export function updateMeet(
@@ -125,7 +132,7 @@ export function deleteMeet(ctx: AppContext, userId: string, meetId: string) {
   const current = getMeet(ctx, userId, meetId);
   requireMembership(ctx, userId, current.teamId, "coach");
   withTx(ctx.db, () => {
-    deleteMeetGraph(ctx.db, meetId);
+    deleteMeetGraph(ctx, meetId);
   });
   return { ok: true };
 }
@@ -133,10 +140,7 @@ export function deleteMeet(ctx: AppContext, userId: string, meetId: string) {
 export function deleteEvent(ctx: AppContext, userId: string, eventId: string) {
   const { event, meet } = requireEventAccess(ctx, userId, eventId, "coach");
   withTx(ctx.db, () => {
-    const athletes = ctx.db
-      .prepare(`SELECT DISTINCT athlete_id AS athleteId FROM event_entries WHERE event_id = ?`)
-      .all(eventId) as { athleteId: string }[];
-    deleteEvents(ctx.db, [eventId]);
+    deleteEventsAndRecompute(ctx, [eventId], event.distance_meters != null ? meet.season_id : null);
     const remainingLive = ctx.db
       .prepare(`SELECT COUNT(*) AS n FROM events WHERE meet_id = ? AND status IN ('live', 'paused')`)
       .get(meet.id) as { n: number };
@@ -147,16 +151,6 @@ export function deleteEvent(ctx: AppContext, userId: string, eventId: string) {
       ctx.db
         .prepare(`UPDATE meets SET status = ? WHERE id = ?`)
         .run(remainingCompleted.n > 0 ? "completed" : "scheduled", meet.id);
-    }
-    if (event.distance_meters != null) {
-      for (const row of athletes) {
-        recomputeTimeRecords(ctx, {
-          athleteId: row.athleteId,
-          seasonId: meet.season_id,
-          discipline: event.discipline,
-          distanceMeters: event.distance_meters,
-        });
-      }
     }
   });
   return { ok: true };
@@ -175,10 +169,14 @@ export function createEvent(
   },
 ) {
   const meet = ctx.db
-    .prepare(`SELECT id, team_id FROM meets WHERE id = ?`)
-    .get(meetId) as { id: string; team_id: string } | undefined;
+    .prepare(`SELECT id, team_id, season_id FROM meets WHERE id = ?`)
+    .get(meetId) as { id: string; team_id: string; season_id: string } | undefined;
   if (!meet) throw notFound("Meet not found");
   requireMembership(ctx, userId, meet.team_id, "coach");
+  const current = ensureCurrentSeason(ctx, meet.team_id);
+  if (meet.season_id !== current.id) {
+    throw badRequest("Events can only be added in the current season");
+  }
   let eventTypeId = input.eventTypeId ?? null;
   let name = input.name?.trim() ?? "";
   let distanceMeters = input.distanceMeters;
@@ -337,9 +335,15 @@ export function addEntries(
     );
     for (const athleteId of input.athleteIds) {
       const athlete = ctx.db
-        .prepare(`SELECT id FROM athletes WHERE id = ? AND team_id = ?`)
+        .prepare(
+          `SELECT 1
+           FROM athlete_team_assignments a
+           JOIN athletes ath ON ath.id = a.athlete_id
+           WHERE a.athlete_id = ? AND a.team_id = ?
+             AND ath.school_id = (SELECT school_id FROM teams WHERE id = a.team_id)`,
+        )
         .get(athleteId, meet.team_id);
-      if (!athlete) throw badRequest(`Athlete ${athleteId} is not on this team`);
+      if (!athlete) throw badRequest(`Athlete ${athleteId} is not assigned to this team`);
       const targetTimeMs =
         input.targetTimeMs !== undefined && input.targetTimeMs !== null
           ? input.targetTimeMs
@@ -461,11 +465,8 @@ export function pauseEvent(ctx: AppContext, userId: string, eventId: string) {
 export function resetEventClock(ctx: AppContext, userId: string, eventId: string) {
   const { event, meet } = requireEventAccess(ctx, userId, eventId, "coach");
   if (event.status !== "paused") throw conflict("Pause the race before resetting the clock", "EVENT_NOT_PAUSED");
-  const athletes = ctx.db
-    .prepare(`SELECT DISTINCT athlete_id AS athleteId FROM event_entries WHERE event_id = ?`)
-    .all(eventId) as { athleteId: string }[];
   withTx(ctx.db, () => {
-    clearEventTiming(ctx.db, eventId);
+    clearEventTimingAndRecompute(ctx, eventId, meet.season_id);
     ctx.db
       .prepare(
         `UPDATE events SET status = 'upcoming', started_at = NULL, paused_at = NULL, completed_at = NULL WHERE id = ?`,
@@ -476,16 +477,6 @@ export function resetEventClock(ctx: AppContext, userId: string, eventId: string
       .get(event.meet_id) as { n: number };
     if (remainingLive.n === 0) {
       ctx.db.prepare(`UPDATE meets SET status = 'scheduled' WHERE id = ? AND status = 'live'`).run(meet.id);
-    }
-    if (event.distance_meters != null) {
-      for (const row of athletes) {
-        recomputeTimeRecords(ctx, {
-          athleteId: row.athleteId,
-          seasonId: meet.season_id,
-          discipline: event.discipline,
-          distanceMeters: event.distance_meters,
-        });
-      }
     }
     appendLog(ctx, eventId, "event.reset", {});
   });

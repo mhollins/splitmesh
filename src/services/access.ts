@@ -2,6 +2,70 @@ import type { AppContext } from "../appContext.ts";
 import { forbidden, notFound } from "../http/errors.ts";
 import { roleAtLeast, type Role } from "../domain/roles.ts";
 
+export type SchoolMembership = {
+  id: string;
+  school_id: string;
+  user_id: string;
+  role: "school_admin";
+};
+
+export function isPlatformAdmin(ctx: AppContext, userId: string): boolean {
+  const row = ctx.db.prepare(`SELECT is_platform_admin AS isPlatformAdmin FROM users WHERE id = ?`).get(userId) as
+    | { isPlatformAdmin: number }
+    | undefined;
+  return Boolean(row?.isPlatformAdmin);
+}
+
+export function requireSchoolManager(ctx: AppContext, userId: string, schoolId: string): void {
+  const school = ctx.db.prepare(`SELECT id FROM schools WHERE id = ?`).get(schoolId);
+  if (!school) throw notFound("School not found");
+  if (isPlatformAdmin(ctx, userId)) return;
+  const row = ctx.db
+    .prepare(`SELECT id, school_id, user_id, role FROM school_memberships WHERE school_id = ? AND user_id = ?`)
+    .get(schoolId, userId) as SchoolMembership | undefined;
+  if (!row || row.role !== "school_admin") throw forbidden("School administrator access required");
+}
+
+export function requireSchoolRead(ctx: AppContext, userId: string, schoolId: string): void {
+  const school = ctx.db.prepare(`SELECT id FROM schools WHERE id = ?`).get(schoolId);
+  if (!school) throw notFound("School not found");
+  if (isPlatformAdmin(ctx, userId)) return;
+  const admin = ctx.db
+    .prepare(`SELECT 1 FROM school_memberships WHERE school_id = ? AND user_id = ?`)
+    .get(schoolId, userId);
+  if (admin) return;
+  const member = ctx.db
+    .prepare(
+      `SELECT 1 FROM team_memberships m
+       JOIN teams t ON t.id = m.team_id
+       WHERE t.school_id = ? AND m.user_id = ?
+       LIMIT 1`,
+    )
+    .get(schoolId, userId);
+  if (!member) throw forbidden("Not a member of this school");
+}
+
+export function requireAthleteEditor(ctx: AppContext, userId: string, athleteId: string): void {
+  const athlete = ctx.db.prepare(`SELECT school_id AS schoolId FROM athletes WHERE id = ?`).get(athleteId) as
+    | { schoolId: string }
+    | undefined;
+  if (!athlete) throw notFound("Athlete not found");
+  if (isPlatformAdmin(ctx, userId)) return;
+  const admin = ctx.db
+    .prepare(`SELECT 1 FROM school_memberships WHERE school_id = ? AND user_id = ? AND role = 'school_admin'`)
+    .get(athlete.schoolId, userId);
+  if (admin) return;
+  const coach = ctx.db
+    .prepare(
+      `SELECT m.role FROM athlete_team_assignments a
+       JOIN team_memberships m ON m.team_id = a.team_id AND m.user_id = ?
+       WHERE a.athlete_id = ?`,
+    )
+    .all(userId, athleteId) as { role: string }[];
+  if (coach.some((row) => roleAtLeast(row.role as Role, "coach"))) return;
+  throw forbidden("Not allowed to edit this athlete");
+}
+
 export type Membership = {
   id: string;
   team_id: string;

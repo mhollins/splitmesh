@@ -9,15 +9,36 @@ import {
   listCoaches,
   updateCoach,
 } from "./services/admin.ts";
+import { listSeasons } from "./services/seasons.ts";
+import {
+  addSchoolAdmin,
+  createTeamInSchool,
+  deleteSchool,
+  getSchool,
+  listSchoolsForUser,
+  removeSchoolAdmin,
+  removeTeamMember,
+  updateSchool,
+  upsertTeamMember,
+} from "./services/schools.ts";
 import { createTeam, deleteTeam, joinTeam, listTeamsForUser, requireTeam, updateTeam } from "./services/teams.ts";
-import { addAthlete, deleteAthlete, listAthletes, updateAthlete } from "./services/roster.ts";
+import {
+  addAthlete,
+  addSchoolAthlete,
+  assignAthlete,
+  deleteAthlete,
+  listAthletes,
+  listSchoolAthletes,
+  unassignAthlete,
+  updateAthlete,
+} from "./services/roster.ts";
 import {
   createEventType,
   deleteEventType,
   listEventTypes,
   updateEventType,
 } from "./services/eventTypes.ts";
-import { deleteManualRecord, upsertManualRecord } from "./services/records.ts";
+import { deleteManualRecord, listSchoolRecords, upsertManualRecord } from "./services/records.ts";
 import {
   addEntries,
   completeEvent,
@@ -84,7 +105,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     const userId = uid(request, ctx);
     const user = getUser(ctx, userId);
     if (!user) throw unauthorized();
-    return { user, teams: listTeamsForUser(ctx, userId) };
+    return { user, teams: listTeamsForUser(ctx, userId), schools: listSchoolsForUser(ctx, userId) };
   });
 
   app.get("/api/admin/users", async (request) => {
@@ -119,8 +140,8 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
 
   app.post("/api/teams", async (request) => {
     const userId = uid(request, ctx);
-    const body = request.body as { name?: string };
-    const team = createTeam(ctx, userId, body.name ?? "");
+    const body = request.body as { name?: string; schoolName?: string };
+    const team = createTeam(ctx, userId, body.name ?? "", body.schoolName);
     return { team };
   });
 
@@ -226,10 +247,119 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
     return { athlete };
   });
 
+  app.get("/api/schools/:schoolId", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId } = request.params as { schoolId: string };
+    return getSchool(ctx, userId, schoolId);
+  });
+
+  app.patch("/api/schools/:schoolId", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId } = request.params as { schoolId: string };
+    const body = request.body as { name?: string };
+    return updateSchool(ctx, userId, schoolId, body.name ?? "");
+  });
+
+  app.delete("/api/schools/:schoolId", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId } = request.params as { schoolId: string };
+    return deleteSchool(ctx, userId, schoolId);
+  });
+
+  app.post("/api/schools/:schoolId/teams", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId } = request.params as { schoolId: string };
+    const body = request.body as { name?: string };
+    return { team: createTeamInSchool(ctx, userId, schoolId, body.name ?? "") };
+  });
+
+  app.post("/api/schools/:schoolId/admins", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId } = request.params as { schoolId: string };
+    const body = request.body as { email?: string };
+    return addSchoolAdmin(ctx, userId, schoolId, body.email ?? "");
+  });
+
+  app.delete("/api/schools/:schoolId/admins/:userId", async (request) => {
+    const actorId = uid(request, ctx);
+    const { schoolId, userId } = request.params as { schoolId: string; userId: string };
+    return removeSchoolAdmin(ctx, actorId, schoolId, userId);
+  });
+
+  app.put("/api/teams/:teamId/members", async (request) => {
+    const userId = uid(request, ctx);
+    const { teamId } = request.params as { teamId: string };
+    const body = request.body as { email?: string; role?: string };
+    return { team: upsertTeamMember(ctx, userId, teamId, body.email ?? "", body.role ?? "") };
+  });
+
+  app.delete("/api/teams/:teamId/members/:userId", async (request) => {
+    const actorId = uid(request, ctx);
+    const { teamId, userId } = request.params as { teamId: string; userId: string };
+    return { team: removeTeamMember(ctx, actorId, teamId, userId) };
+  });
+
+  app.get("/api/schools/:schoolId/athletes", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId } = request.params as { schoolId: string };
+    return { athletes: listSchoolAthletes(ctx, userId, schoolId) };
+  });
+
+  app.post("/api/schools/:schoolId/athletes", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId } = request.params as { schoolId: string };
+    const body = request.body as {
+      firstName?: string;
+      lastName?: string;
+      gender?: string;
+      gradeLevel?: string;
+      graduationYear?: number;
+    };
+    return {
+      athlete: addSchoolAthlete(ctx, userId, schoolId, {
+        firstName: body.firstName,
+        lastName: body.lastName,
+        gender: body.gender,
+        gradeLevel: body.gradeLevel,
+        graduationYear: body.graduationYear,
+      }),
+    };
+  });
+
+  app.post("/api/schools/:schoolId/athletes/:athleteId/teams", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId, athleteId } = request.params as { schoolId: string; athleteId: string };
+    const body = request.body as { teamId?: string };
+    return { athlete: assignAthlete(ctx, userId, schoolId, athleteId, body.teamId ?? "") };
+  });
+
+  app.delete("/api/schools/:schoolId/athletes/:athleteId/teams/:teamId", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId, athleteId, teamId } = request.params as {
+      schoolId: string;
+      athleteId: string;
+      teamId: string;
+    };
+    return { athlete: unassignAthlete(ctx, userId, schoolId, athleteId, teamId) };
+  });
+
+  app.get("/api/schools/:schoolId/records", async (request) => {
+    const userId = uid(request, ctx);
+    const { schoolId } = request.params as { schoolId: string };
+    return { records: listSchoolRecords(ctx, userId, schoolId) };
+  });
+
+  app.get("/api/teams/:teamId/seasons", async (request) => {
+    const userId = uid(request, ctx);
+    const { teamId } = request.params as { teamId: string };
+    return { seasons: listSeasons(ctx, userId, teamId) };
+  });
+
   app.get("/api/teams/:teamId/meets", async (request) => {
     const userId = uid(request, ctx);
     const { teamId } = request.params as { teamId: string };
-    return { meets: listMeets(ctx, userId, teamId) };
+    const { seasonId } = request.query as { seasonId?: string };
+    return { meets: listMeets(ctx, userId, teamId, seasonId || undefined) };
   });
 
   app.post("/api/teams/:teamId/meets", async (request) => {

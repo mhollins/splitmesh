@@ -464,7 +464,10 @@ function AthleteRow(props: {
           </span>
           {athlete.summary.conflicts.length > 0 && <span className="conflict">conflict</span>}
           {athlete.isNewPersonalRecord && (
-            <span className="pr-flash">{formatPrGain(athlete.prImprovementMs, true)}</span>
+            <span className="pr-flash">{formatPrGain(athlete.prImprovementMs, athlete.isNewPersonalRecord)}</span>
+          )}
+          {athlete.isNewSchoolRecord && (
+            <span className="pr-flash">{formatPrGain(athlete.srImprovementMs, athlete.isNewSchoolRecord).replace(/^PR/, "SR")}</span>
           )}
           {!athlete.isNewPersonalRecord && athlete.summary.onPersonalRecordPace && (
             <span className="badge">PR pace</span>
@@ -480,6 +483,7 @@ function AthleteRow(props: {
             <span className="records">
               {athlete.personalRecordMs != null && <span>PR {formatMs(athlete.personalRecordMs)}</span>}
               {athlete.seasonBestMs != null && <span>SB {formatMs(athlete.seasonBestMs)}</span>}
+              {athlete.schoolRecordMs != null && <span>SR {formatMs(athlete.schoolRecordMs)}</span>}
               {athlete.summary.projectedFinishMs != null && (
                 <span>proj {formatMs(athlete.summary.projectedFinishMs)}</span>
               )}
@@ -527,7 +531,7 @@ function AthleteRow(props: {
             <span className="records">
               {athlete.isNewPersonalRecord ? (
                 <span className="pr-flash">
-                  {formatPrGain(athlete.prImprovementMs, true)}
+                  {formatPrGain(athlete.prImprovementMs, athlete.isNewPersonalRecord)}
                   {athlete.previousPersonalRecordMs != null && (
                     <> was {formatMs(athlete.previousPersonalRecordMs)}</>
                   )}
@@ -536,6 +540,12 @@ function AthleteRow(props: {
                 athlete.personalRecordMs != null && <span>PR {formatMs(athlete.personalRecordMs)}</span>
               )}
               {athlete.seasonBestMs != null && <span>SB {formatMs(athlete.seasonBestMs)}</span>}
+              {athlete.schoolRecordMs != null && <span>SR {formatMs(athlete.schoolRecordMs)}</span>}
+              {athlete.isNewSchoolRecord && (
+                <span className="pr-flash">
+                  {formatPrGain(athlete.srImprovementMs, athlete.isNewSchoolRecord).replace(/^PR/, "SR")}
+                </span>
+              )}
             </span>
           </>
         )}

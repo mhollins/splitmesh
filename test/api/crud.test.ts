@@ -67,7 +67,7 @@ describe("update and delete teams", () => {
     const leftover = app!.ctx.db
       .prepare(`SELECT COUNT(*) AS n FROM athletes WHERE id = ?`)
       .get(athlete.id) as { n: number };
-    expect(leftover.n).toBe(0);
+    expect(leftover.n).toBe(1);
   });
 
   it("rejects an empty team name", async () => {
@@ -102,7 +102,7 @@ describe("update and delete athletes", () => {
     expect(res.json().athlete.gradeLevel).toBe("elementary");
   });
 
-  it("lets a coach delete an athlete who already has race data", async () => {
+  it("lets a school admin delete an athlete who already has race data", async () => {
     const { owner, coach, team } = await ownerTeam();
     const athlete = (
       await api(app!, owner.cookie, "POST", `/api/teams/${team.id}/athletes`, {
@@ -133,7 +133,9 @@ describe("update and delete athletes", () => {
       idempotencyKey: "maya-finish",
     });
 
-    const deleted = await api(app!, coach.cookie, "DELETE", `/api/athletes/${athlete.id}`);
+    const blocked = await api(app!, coach.cookie, "DELETE", `/api/athletes/${athlete.id}`);
+    expect(blocked.statusCode).toBe(403);
+    const deleted = await api(app!, owner.cookie, "DELETE", `/api/athletes/${athlete.id}`);
     expect(deleted.statusCode).toBe(200);
     const roster = await api(app!, owner.cookie, "GET", `/api/teams/${team.id}/athletes`);
     expect(roster.json().athletes).toHaveLength(0);

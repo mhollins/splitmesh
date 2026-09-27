@@ -41,6 +41,10 @@ export type LiveAthlete = {
   previousPersonalRecordMs: number | null;
   prImprovementMs: number | null;
   isNewPersonalRecord: boolean;
+  schoolRecordMs: number | null;
+  previousSchoolRecordMs: number | null;
+  srImprovementMs: number | null;
+  isNewSchoolRecord: boolean;
   seasonBestMs: number | null;
   status: string;
   summary: {

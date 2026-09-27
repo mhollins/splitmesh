@@ -5,7 +5,7 @@ import { badRequest, conflict, notFound } from "../http/errors.ts";
 import type { LiveEventState } from "../shared/types.ts";
 import { requireEventAccess } from "./access.ts";
 import { appendLog, readLog } from "./eventLog.ts";
-import { recomputeTimeRecords } from "./records.ts";
+import { recomputeFinishMarks } from "./records.ts";
 
 type ObsRow = {
   id: string;
@@ -180,7 +180,7 @@ function applyPrimaryEffects(
       )
       .run(args.observedAt, elapsed, args.performanceId);
     if (args.event.distance_meters != null) {
-      recomputeTimeRecords(ctx, {
+      recomputeFinishMarks(ctx, {
         athleteId: args.athleteId,
         seasonId: args.event.season_id,
         discipline: args.event.discipline,
@@ -269,7 +269,7 @@ export function retractObservation(ctx: AppContext, userId: string, observationI
             )
             .run(current.performance_id);
           if (event.distance_meters != null) {
-            recomputeTimeRecords(ctx, {
+            recomputeFinishMarks(ctx, {
               athleteId: current.athlete_id,
               seasonId: event.season_id,
               discipline: event.discipline,
@@ -422,11 +422,15 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
   const event = ctx.db
     .prepare(
       `SELECT e.id, e.meet_id AS meetId, m.name AS meetName, m.team_id AS teamId, m.season_id AS seasonId,
+              t.school_id AS schoolId,
               e.name, e.category, e.discipline, e.distance_meters AS distanceMeters, e.status,
               e.started_at AS startedAt, e.paused_at AS pausedAt, e.completed_at AS completedAt
-       FROM events e JOIN meets m ON m.id = e.meet_id WHERE e.id = ?`,
+       FROM events e
+       JOIN meets m ON m.id = e.meet_id
+       JOIN teams t ON t.id = m.team_id
+       WHERE e.id = ?`,
     )
-    .get(eventId) as LiveEventState["event"] | undefined;
+    .get(eventId) as (LiveEventState["event"] & { schoolId: string }) | undefined;
   if (!event) throw notFound("Event not found");
 
   const timingPoints = ctx.db
@@ -443,7 +447,9 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
               a.gender, a.grade_level AS gradeLevel, ee.bib, ee.target_time_ms AS targetTimeMs,
               p.id AS performanceId, p.status AS performanceStatus,
               pr.mark_value AS personalRecordMs, pr.previous_mark_value AS previousPersonalRecordMs,
-              pr.performance_id AS personalRecordPerformanceId, sb.mark_value AS seasonBestMs
+              pr.performance_id AS personalRecordPerformanceId, sb.mark_value AS seasonBestMs,
+              sr.mark_value AS schoolRecordMs, sr.previous_mark_value AS previousSchoolRecordMs,
+              sr.performance_id AS schoolRecordPerformanceId
        FROM event_entries ee
        JOIN athletes a ON a.id = ee.athlete_id
        LEFT JOIN performances p ON p.event_entry_id = ee.id
@@ -452,6 +458,9 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
        LEFT JOIN season_bests sb
          ON sb.athlete_id = ee.athlete_id AND sb.season_id = ? AND sb.discipline = ? AND sb.distance_meters = ?
             AND sb.mark_type = 'time_ms'
+       LEFT JOIN school_records sr
+         ON sr.school_id = ? AND sr.gender = a.gender AND sr.discipline = ? AND sr.distance_meters = ?
+            AND sr.mark_type = 'time_ms'
        WHERE ee.event_id = ?
        ORDER BY a.last_name, a.first_name`,
     )
@@ -459,6 +468,9 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
       event.discipline,
       event.distanceMeters,
       event.seasonId,
+      event.discipline,
+      event.distanceMeters,
+      event.schoolId,
       event.discipline,
       event.distanceMeters,
       eventId,
@@ -477,6 +489,9 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
     previousPersonalRecordMs: number | null;
     personalRecordPerformanceId: string | null;
     seasonBestMs: number | null;
+    schoolRecordMs: number | null;
+    previousSchoolRecordMs: number | null;
+    schoolRecordPerformanceId: string | null;
   }[];
 
   const observations = ctx.db
@@ -531,13 +546,29 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
       seasonBestMs: entry.seasonBestMs,
       observations: obs,
     });
-    const isNewPersonalRecord = Boolean(
-      summary.finished && entry.performanceId && entry.performanceId === entry.personalRecordPerformanceId,
-    );
-    const prImprovementMs =
-      isNewPersonalRecord && entry.previousPersonalRecordMs != null && entry.personalRecordMs != null
+    const prDelta =
+      entry.previousPersonalRecordMs != null && entry.personalRecordMs != null
         ? entry.previousPersonalRecordMs - entry.personalRecordMs
         : null;
+    const isNewPersonalRecord = Boolean(
+      summary.finished &&
+        entry.performanceId &&
+        entry.performanceId === entry.personalRecordPerformanceId &&
+        prDelta != null &&
+        prDelta > 0,
+    );
+    const srDelta =
+      entry.previousSchoolRecordMs != null && entry.schoolRecordMs != null
+        ? entry.previousSchoolRecordMs - entry.schoolRecordMs
+        : null;
+    const isNewSchoolRecord = Boolean(
+      summary.finished &&
+        entry.performanceId &&
+        entry.performanceId === entry.schoolRecordPerformanceId &&
+        srDelta != null &&
+        srDelta > 0,
+    );
+    const prImprovementMs = isNewPersonalRecord ? prDelta : null;
     return {
       entryId: entry.entryId,
       performanceId: entry.performanceId,
@@ -552,6 +583,10 @@ export function buildLiveState(ctx: AppContext, eventId: string): LiveEventState
       previousPersonalRecordMs: entry.previousPersonalRecordMs,
       prImprovementMs,
       isNewPersonalRecord,
+      schoolRecordMs: entry.schoolRecordMs,
+      previousSchoolRecordMs: entry.previousSchoolRecordMs,
+      srImprovementMs: isNewSchoolRecord ? srDelta : null,
+      isNewSchoolRecord,
       seasonBestMs: entry.seasonBestMs,
       status: entry.performanceStatus ?? "pending",
       summary: {

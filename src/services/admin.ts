@@ -110,7 +110,7 @@ export function adminDeleteTeam(ctx: AppContext, actorId: string, teamId: string
   const exists = ctx.db.prepare(`SELECT id FROM teams WHERE id = ?`).get(teamId);
   if (!exists) throw notFound("Team not found");
   withTx(ctx.db, () => {
-    deleteTeamGraph(ctx.db, teamId);
+    deleteTeamGraph(ctx, teamId);
   });
   return { ok: true };
 }

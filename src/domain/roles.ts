@@ -17,6 +17,13 @@ export function roleAtLeast(role: Role, minimum: Role): boolean {
   return RANK[role] >= RANK[minimum];
 }
 
+export const SCHOOL_ROLES = ["school_admin"] as const;
+export type SchoolRole = (typeof SCHOOL_ROLES)[number];
+
+export function isSchoolRole(value: string): value is SchoolRole {
+  return (SCHOOL_ROLES as readonly string[]).includes(value);
+}
+
 export const DISCIPLINES = [
   "cross_country",
   "track_running",

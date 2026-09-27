@@ -66,7 +66,12 @@ export function AdminPage() {
   }
 
   async function removeTeam(team: Team) {
-    if (!confirm(`Delete ${team.name} and all of its athletes, meets, and results?`)) return;
+    if (
+      !confirm(
+        `Delete ${team.name}? Its meets and results are removed. Athletes stay at ${team.schoolName}, and school records are recomputed.`,
+      )
+    )
+      return;
     setError(null);
     try {
       await api.adminDeleteTeam(team.id);
@@ -135,7 +140,7 @@ export function AdminPage() {
                       required
                     />
                     <p className="muted">
-                      Invite {team.inviteCode}
+                      {team.schoolName} · Invite {team.inviteCode}
                       {team.members.length > 0 &&
                         ` · ${team.members.map((member) => member.displayName).join(", ")}`}
                     </p>
